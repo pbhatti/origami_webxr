@@ -1,0 +1,38 @@
+{
+  "name": "fold-and-fly",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Fold & Play — WebXR paper folding for Meta Quest Pro",
+  "engines": {
+    "node": ">=20.19.0 <21.0.0-0 || >=22.12.0 <23.0.0-0 || >=24.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@iwsdk/core": "1.0.1",
+    "three": "npm:super-three@0.181.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.36.0",
+    "@iwsdk/vite-plugin-dev": "1.0.1",
+    "@types/node": "22.18.8",
+    "@types/three": "0.181.0",
+    "eslint": "9.36.0",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.2",
+    "typescript-eslint": "8.44.1",
+    "vite": "7.1.12",
+    "vitest": "3.2.4"
+  },
+  "overrides": {
+    "three": "npm:super-three@0.181.0"
+  }
+}
