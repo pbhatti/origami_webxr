@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fold & Play</title>
+    <meta
+      name="description"
+      content="Simple folds. Big imagination. Pick a creation, fold it with your hands, and watch it come to life."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <script type="module" crossorigin src="./assets/index-BmY2TzlV.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BWmsbH3l.css">
+  </head>
+  <body>
+    <div id="scene-container" role="presentation"></div>
+    <div class="grain"></div>
+    <section id="welcome" aria-labelledby="product-title">
+      <p class="stamp" data-stamp>Simple folds. Big imagination.</p>
+      <h1 id="product-title" data-title>Fold & Play</h1>
+      <p class="lede" data-sentence>
+        Pick a creation, fold it with your hands, and watch it come to life.
+      </p>
+      <h2 class="headline" data-headline>Checking XR capabilities…</h2>
+      <p class="body" data-body>
+        Probing navigator.xr.isSessionSupported("immersive-ar") and secure-context requirements.
+      </p>
+      <p class="hint" data-hint>
+        Start Folding, then pinch a creation card. Whale, Fox, and Bat are playable. On desktop, click and drag.
+      </p>
+      <div class="completion" data-completion>
+        <p class="eyebrow">Complete</p>
+        <h2 data-complete-heading>It's alive!</h2>
+        <p data-complete-body>Your creation is ready to play!</p>
+      </div>
+      <div class="exit-fallback" data-exit-fallback hidden>
+        <h2 data-fallback-heading>Still in immersive view?</h2>
+        <p data-fallback-body>This page is still open. Enter Mixed Reality starts a new session.</p>
+      </div>
+      <button type="button" data-start hidden>Start Folding</button>
+      <p class="gesture-hint" data-gesture-hint>
+        <svg class="gesture-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M9.2 20.5V9.4a1.55 1.55 0 0 1 3.1 0V15M12.3 14.8V7.2a1.55 1.55 0 0 1 3.1 0V15M15.4 14.5V10a1.55 1.55 0 1 1 3.1 0v5.2M18.5 14.6v-1.8a1.5 1.5 0 1 1 3 0v3.4a6.1 6.1 0 0 1-6.1 6.1h-2.4a6.1 6.1 0 0 1-6.1-6.1V13"
+          />
+        </svg>
+        <span data-gesture-text>Use your hands to pinch, fold &amp; play.</span>
+      </p>
+      <div class="chips" data-chips></div>
+      <p class="status" data-status>BOOT</p>
+      <pre class="log" data-log hidden></pre>
+    </section>
+    <nav class="session-bar" data-session-bar hidden aria-label="Paper session">
+      <button type="button" data-recenter>Recenter Paper</button>
+      <button type="button" data-restart>Fold Again</button>
+      <button type="button" data-replay hidden>Fold Again</button>
+      <button type="button" data-choose hidden>Explore More</button>
+      <button type="button" data-help-btn>Help</button>
+      <button type="button" data-debug-btn>Debug</button>
+      <button type="button" data-exit>Exit AR</button>
+    </nav>
+    <div class="exit-confirm" data-exit-confirm hidden role="dialog" aria-modal="true" aria-labelledby="exit-heading">
+      <h2 id="exit-heading" data-exit-heading>Leave Fold &amp; Play?</h2>
+      <p data-exit-body>Your current folding progress will be lost.</p>
+      <div class="exit-actions">
+        <button type="button" data-exit-yes>Yes, Leave</button>
+        <button type="button" data-exit-no>No, Stay</button>
+      </div>
+    </div>
+    <p class="help-card" data-help hidden></p>
+    <p class="phase-note">
+      Explore creations. Whale, Fox, and Bat are ready to fold.<br />
+      Explore keeps your progress. More creations coming soon.
+    </p>
+    <noscript>
+      <section id="welcome">
+        <h1>Fold &amp; Play</h1>
+        <p>JavaScript is required to probe WebXR and render the paper studio.</p>
+      </section>
+    </noscript>
+  </body>
+</html>

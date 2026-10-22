@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Fold & Play">
+  <rect width="64" height="64" fill="#1b1410"/>
+  <path d="M10 12h44v40H10z" fill="#e24a1a"/>
+  <path d="M32 12v40" stroke="#f6e7c1" stroke-width="2"/>
+  <path d="M10 12l44 40" stroke="#c43d14" stroke-width="1.5" opacity=".7"/>
+</svg>
