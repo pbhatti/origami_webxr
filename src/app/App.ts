@@ -1,4 +1,4 @@
-import { AmbientLight, DirectionalLight } from 'three';
+import { AmbientLight, DirectionalLight, HemisphereLight } from 'three';
 import type { World } from '@iwsdk/core';
 import { isPlayableAnimalId, type AnimalId, type PlayableAnimalId } from '../gallery/animals.ts';
 import { OrigamiGallery, type GalleryPointerEvent } from '../gallery/OrigamiGallery.ts';
@@ -17,6 +17,7 @@ import { BAT_SHAPE_INSPECTOR } from '../origami/batFinalShape.ts';
 import { batFinalPhase } from '../origami/recipes/bat.recipe.ts';
 import { BAT_CUT_INSPECTOR } from '../origami/ScissorsCut.ts';
 import { FOX_SHAPE_INSPECTOR } from '../origami/foxFinalShape.ts';
+import { PAPER_DEPTH } from '../origami/paperDepth.ts';
 import { FOLD_GEOMETRY_INSPECTOR } from '../origami/foldGeometryInspector.ts';
 import { ARROW_GUIDE, CREASE_GUIDE, FOLD_ASSIST, nudgeConfig } from '../origami/foldAssist.ts';
 import { AppStateMachine, type AppState } from '../state/AppStateMachine.ts';
@@ -169,10 +170,14 @@ export class App {
     try {
       const report = await this.session.probeCapabilities();
       const world = await this.session.createWorld(this.roots.scene);
-      world.scene.add(new AmbientLight(0xfff1de, 0.85));
-      const key = new DirectionalLight(0xffd7a8, 1.35);
-      key.position.set(0.6, 2.4, 1.2);
+      world.scene.add(new AmbientLight(0xfff4ea, 0.55));
+      world.scene.add(new HemisphereLight(0xfff8f2, 0xd9cfc4, 0.38));
+      const key = new DirectionalLight(0xfff1e4, 1.2);
+      key.position.set(0.85, 2.5, 0.55);
       world.scene.add(key);
+      const fill = new DirectionalLight(0xd5e2f0, 0.42);
+      fill.position.set(-1.4, 1.1, -0.6);
+      world.scene.add(fill);
 
       world.renderer.domElement.setAttribute('aria-label', 'Fold & Play paper studio');
       this.stage.mount(world);
@@ -260,6 +265,9 @@ export class App {
               : (this.stage.engine.currentStep?.fromSnapshotId ?? '—'),
             finalPhase:
               batFinalPhase(this.stage.engine.currentStep?.id ?? null, this.stage.engine.isComplete()) ?? '—',
+            batPivot: this.stage.batDebug().pivot,
+            batCommits: this.stage.batDebug().commits,
+            batValid: this.stage.batDebug().valid,
             sideFolds: this.stage.owlDebug().sides,
             decorState: this.stage.owlDebug().decor,
             movingFaces: alignment.movingFaces,
@@ -824,6 +832,7 @@ export class App {
       }
       if (committed) {
         this.stage.commitProgress();
+        this.hands.requireFreshPinch();
         if (this.enterCompletionIfNeeded()) {
           return;
         }
@@ -1142,6 +1151,21 @@ export class App {
     }
     if (key === '>') {
       STEPPER_INSPECTOR.connectorState = !STEPPER_INSPECTOR.connectorState;
+    }
+    if (key === '!') {
+      PAPER_DEPTH.showLayerBounds = !PAPER_DEPTH.showLayerBounds;
+    }
+    if (key === '@') {
+      PAPER_DEPTH.showCreaseAxes = !PAPER_DEPTH.showCreaseAxes;
+    }
+    if (key === '#') {
+      PAPER_DEPTH.showPivot = !PAPER_DEPTH.showPivot;
+    }
+    if (key === '$') {
+      PAPER_DEPTH.shadows = !PAPER_DEPTH.shadows;
+    }
+    if (key === '%') {
+      PAPER_DEPTH.twoHand = !PAPER_DEPTH.twoHand;
     }
     if (key === 'l' || key === 'L') {
       const world = this.session.getWorld();

@@ -43,6 +43,7 @@ import { CREASE_ALIGN_TOL_M, creaseAlignmentErrorM } from './creaseMath.ts';
 import { layerOwnershipLabel } from './foldLayerGroup.ts';
 import { foldAxisDebug } from './MeshSplitter.ts';
 import { FOX_SHAPE_INSPECTOR } from './foxFinalShape.ts';
+import { validateBatGeometry } from './batFinalShape.ts';
 import { BAT_NAMED, BAT_PAPER_COLOR, BAT_RECIPE } from './recipes/bat.recipe.ts';
 import { OwlPinch } from './OwlPinch.ts';
 import { ScissorsCut } from './ScissorsCut.ts';
@@ -153,6 +154,7 @@ export class PaperStage {
       this.exitConfirm.group,
     );
     this.manipulator = new CompletedOrigamiManipulator(this.paperRoot, this.scaleRoot);
+    this.manipulator.setHighlight((active) => this.sheet.setGrabHighlight(active));
   }
 
   mount(world: World): void {
@@ -560,7 +562,7 @@ export class PaperStage {
     this.moveHandle.setVisible(true);
     this.paperRoot.getWorldPosition(_position);
     if (this.animalId === 'bat') {
-      this.batCreature.start(_position.clone(), this.sheet.group, this.engine.fromSnapshot ?? BAT_RECIPE.snapshots.faced);
+      this.batCreature.start(_position.clone(), this.sheet.group);
     } else {
       this.creature.start(_position.clone(), this.sheet.group);
     }
@@ -595,7 +597,10 @@ export class PaperStage {
     }
     this.guides.tick(1 / 72, this.guideState(this.engine.enginePhase === 'folding'));
     this.feedback.tick(1000 / 72);
+    this.sheet.syncDepthDebug();
+    this.manipulator.setAssembly(this.sheet.layerCount);
     if (!this.exitPrompt) {
+      this.creature.setHeld(this.manipulator.blocksUi);
       this.creature.tick(1 / 72);
     }
     this.manipulator.face(_position);
@@ -638,6 +643,10 @@ export class PaperStage {
 
   consumeFaceCommit(): boolean {
     if (!this.faceCommit || this.engine.isBusy() || this.engine.currentStep?.id !== 'bat-face') {
+      return false;
+    }
+    if (!this.engine.isStepCommitted('bat-head') || !this.engine.isStepCommitted('bat-notch')) {
+      this.faceCommit = false;
       return false;
     }
     this.faceCommit = false;
@@ -685,6 +694,24 @@ export class PaperStage {
       state: this.cutter.visualState,
       progress: `${Math.round(this.cutter.progress * 100)}%`,
       done: this.cutter.done ? 'yes' : 'no',
+    };
+  }
+
+  batDebug(): { commits: string; valid: string; pivot: string } {
+    const step = this.engine.currentStep;
+    const pivot = step ? step.hinge.p0.map((n) => n.toFixed(3)).join(',') : '—';
+    if (this.animalId !== 'bat') {
+      return { commits: '—', valid: '—', pivot: '—' };
+    }
+    const snap = this.engine.fromSnapshot;
+    const errors =
+      snap && this.engine.isComplete()
+        ? validateBatGeometry(snap, BAT_RECIPE.finalSilhouette ?? [])
+        : null;
+    return {
+      commits: String(this.engine.commitEventCount),
+      valid: errors == null ? 'in progress' : errors.length === 0 ? 'ok' : errors.join('; '),
+      pivot,
     };
   }
 
@@ -760,7 +787,11 @@ export class PaperStage {
     this.faceRevealMs += dtMs;
     const shown = Math.min(1, this.faceRevealMs / 720);
     this.batCreature.setReveal(shown);
-    if (shown >= 1) {
+    if (
+      shown >= 1 &&
+      this.engine.isStepCommitted('bat-head') &&
+      this.engine.isStepCommitted('bat-notch')
+    ) {
       this.faceCommit = true;
     }
   }

@@ -11,7 +11,8 @@ import {
 import { idleSnapshot, type InteractionSnapshot } from '../input/HandSession.ts';
 import type { AppState } from '../state/AppStateMachine.ts';
 import type { SessionDiagnostics } from '../xr/XRSessionManager.ts';
-import { CREATURE_SCALE } from '../animation/CompletedOrigamiManipulator.ts';
+import { CREATURE_SCALE, type PlayScaleDebug } from '../animation/CompletedOrigamiManipulator.ts';
+import { PAPER_DEPTH } from '../origami/paperDepth.ts';
 import { FOLD_FEEDBACK } from '../feedback/foldFeedback.ts';
 import { ARROW_GUIDE, CREASE_GUIDE, FOLD_ASSIST } from '../origami/foldAssist.ts';
 import { MENU_DRAG_CONFIG, MENU_DRAG_INSPECTOR } from '../gallery/menuDrag.ts';
@@ -26,9 +27,9 @@ import { FONT_MONO, FONT_SANS, getUiOpacity, theme, themeMaterial } from '../the
 
 const _world = new Vector3();
 const PANEL_WIDTH = 0.28;
-const PANEL_HEIGHT = 1.078;
+const PANEL_HEIGHT = 1.193;
 const CANVAS_W = 768;
-const CANVAS_H = 3592;
+const CANVAS_H = 3976;
 
 export interface DebugPanelView {
   appState: AppState;
@@ -69,6 +70,9 @@ export interface DebugPanelView {
     hingeAxis?: string;
     geometryState?: string;
     finalPhase?: string;
+    batCommits?: string;
+    batValid?: string;
+    batPivot?: string;
     sideFolds?: string;
     decorState?: string;
     movingFaces?: number;
@@ -129,11 +133,7 @@ export interface DebugPanelView {
       dragMode?: string;
       rayDistance?: number;
     };
-    playScale?: {
-      state: string;
-      scale: number;
-      handDistanceM: number | null;
-    };
+    playScale?: PlayScaleDebug;
   };
 }
 
@@ -153,6 +153,19 @@ function playMultiplier(view: DebugPanelView): string {
   const scale = view.fold?.playScale?.scale;
   const value = scale == null ? '—' : `${scale.toFixed(2)}×`;
   return `${flag}  ${value}`;
+}
+
+function metersText(value: number | null | undefined): string {
+  return value == null ? '—' : `${value.toFixed(3)}m`;
+}
+
+function handPose(view: PlayScaleDebug | undefined, side: 'left' | 'right'): string {
+  if (!view) {
+    return '—';
+  }
+  const tracking = side === 'left' ? view.leftTracking : view.rightTracking;
+  const pinching = side === 'left' ? view.leftPinch : view.rightPinch;
+  return `${tracking}  ${pinching ? 'pinch' : 'open'}`;
 }
 
 function menuPos(position: [number, number, number] | undefined): string {
@@ -242,6 +255,22 @@ function draw(view: DebugPanelView): HTMLCanvasElement {
     line('scale min', CREATURE_SCALE.minScale.toFixed(2)),
     line('scale max', CREATURE_SCALE.maxScale.toFixed(2)),
     line('play state', view.fold?.playScale?.state ?? '—'),
+    '3D Manipulation',
+    line('3d L', handPose(view.fold?.playScale, 'left')),
+    line('3d R', handPose(view.fold?.playScale, 'right')),
+    line('3d pos', menuPos(view.fold?.playScale?.position)),
+    line('3d rot', menuPos(view.fold?.playScale?.rotationDeg)),
+    line('3d scale', view.fold?.playScale ? `${view.fold.playScale.scale.toFixed(2)}×` : '—'),
+    line('span0', metersText(view.fold?.playScale?.initialHandDistanceM)),
+    line('span', metersText(view.fold?.playScale?.handDistanceM)),
+    line('3d root', view.fold?.playScale?.root ?? '—'),
+    line('paper n', view.fold?.playScale ? String(view.fold.playScale.layerCount) : '—'),
+    line('contact', `${PAPER_DEPTH.shadows ? 'on' : 'off'}  $`),
+    line('bounds', `${PAPER_DEPTH.showLayerBounds ? 'show' : 'hide'}  !`),
+    line('creases', `${PAPER_DEPTH.showCreaseAxes ? 'show' : 'hide'}  @`),
+    line('pivot', `${PAPER_DEPTH.showPivot ? 'show' : 'hide'}  #`),
+    line('2h xform', `${PAPER_DEPTH.twoHand ? 'on' : 'off'}  %`),
+    line('lost', view.fold?.playScale?.trackingLost ? 'yes' : 'no'),
     line('fps', view.fps.toFixed(0)),
     line('ref', view.diagnostics?.referenceSpace ?? 'none'),
     line('hands feat', String(view.diagnostics?.handTracking ?? 'n/a')),
@@ -290,6 +319,9 @@ function draw(view: DebugPanelView): HTMLCanvasElement {
     line('bat snap', view.fold?.recipeId === 'origami-bat' ? `${view.fold.phase} ${((view.fold.foldPct ?? 0) * 100).toFixed(0)}%` : '—'),
     line('bat geo', view.fold?.recipeId === 'origami-bat' ? view.fold.geometryState ?? '—' : '—'),
     line('bat phase', view.fold?.recipeId === 'origami-bat' ? view.fold.finalPhase ?? '—' : '—'),
+    line('bat pivot', view.fold?.recipeId === 'origami-bat' ? view.fold.batPivot ?? '—' : '—'),
+    line('bat commits', view.fold?.recipeId === 'origami-bat' ? view.fold.batCommits ?? '—' : '—'),
+    line('bat valid', view.fold?.recipeId === 'origami-bat' ? view.fold.batValid ?? '—' : '—'),
     line('bat jump', 'alt+1..7'),
     line('owl step', view.fold?.recipeId === 'origami-owl' ? `${view.fold.stage ?? '—'}/5  ${view.fold.stepId ?? '—'}` : '—'),
     line('owl crease', view.fold?.recipeId === 'origami-owl' ? view.fold.creaseId ?? '—' : '—'),

@@ -18,9 +18,8 @@ import type { FaceDefinition, MeshSnapshot, Vec3 } from './types.ts';
  *    downward configuration.
  * 4. Opening a wing rotates that same flap around the same crease until the
  *    tip is extended and flat. It does not cut a second flap.
- * 5. The reference uses scissors for the ear notch. That cut is an assisted
- *    crease-press that splits only the head-flap faces and drops the V scrap,
- *    so infinite creases cannot eat the wings.
+ * 5. The ear notch is cut on the folded head edge. The V is removed from that
+ *    one mesh, so the cut cannot pull the pre-fold top edge back into place.
  */
 export const BAT_FOLD_ASSUMPTIONS = [
   'diamond-start-is-square-diagonal',
@@ -42,11 +41,11 @@ export const BAT_SHAPE_INSPECTOR = {
 };
 
 export const BAT_SHAPE_TOLERANCE_M = 0.04;
-export const BAT_HEAD_Y_MIN = -0.055;
-export const BAT_FACE_Y = -0.028;
-export const BAT_FACE_Z = 0.0042;
-export const BAT_EYE_X = 0.016;
-export const BAT_EYE_Y = -0.022;
+export const BAT_HEAD_Y_MIN = -0.062;
+export const BAT_FACE_Y = -0.08;
+export const BAT_FACE_Z = 0.006;
+export const BAT_EYE_X = 0.012;
+export const BAT_EYE_Y = -0.072;
 
 function centroid(face: FaceDefinition, vertices: Vec3[]): Vec3 {
   let acc: Vec3 = [0, 0, 0];
@@ -81,18 +80,10 @@ function triangleContains(point: Vec3, a: Vec3, b: Vec3, c: Vec3): boolean {
 }
 
 /** Assisted cut used only on the head flap so wing faces stay intact. */
-export function cutHeadNotch(
-  snapshot: MeshSnapshot,
-  left: Vec3,
-  tip: Vec3,
-  right: Vec3,
-  headMinY: number,
-): MeshSnapshot {
-  const headFaces = snapshot.faces.filter((face) => centroid(face, snapshot.vertices)[1] >= headMinY - 0.004);
-  const bodyFaces = snapshot.faces.filter((face) => centroid(face, snapshot.vertices)[1] < headMinY - 0.004);
-  const headOnly: MeshSnapshot = { ...snapshot, faces: headFaces };
+/** Cut a V out of the folded head. One vertex buffer, so body and wing indices stay valid. */
+export function cutHeadNotch(snapshot: MeshSnapshot, left: Vec3, tip: Vec3, right: Vec3): MeshSnapshot {
   const split = splitSnapshotAlongCrease(
-    splitSnapshotAlongCrease(splitSnapshotAlongCrease(headOnly, left, tip), tip, right),
+    splitSnapshotAlongCrease(splitSnapshotAlongCrease(snapshot, left, tip), tip, right),
     right,
     left,
   );
@@ -100,7 +91,7 @@ export function cutHeadNotch(
   return {
     ...split,
     vertices: split.vertices.map((vertex) => copy3(vertex)),
-    faces: [...bodyFaces.map((face) => ({ ...face, vertices: [...face.vertices] })), ...kept],
+    faces: kept,
   };
 }
 

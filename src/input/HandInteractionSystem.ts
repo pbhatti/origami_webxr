@@ -14,7 +14,7 @@ import type { ScissorsCut } from '../origami/ScissorsCut.ts';
 import type { SimulatedHands } from '../desktop/SimulatedHands.ts';
 import type { AppState } from '../state/AppStateMachine.ts';
 import type { SessionDiagnostics } from '../xr/XRSessionManager.ts';
-import type { PlayManipulationFrame } from '../animation/CompletedOrigamiManipulator.ts';
+import type { PlayManipulationFrame, PlayScaleDebug } from '../animation/CompletedOrigamiManipulator.ts';
 import { collectInputSources, emptyHandSample, sampleHands, type HandSample } from './HandTrackingAdapter.ts';
 import type { HandSession, InteractionSnapshot } from './HandSession.ts';
 import { intersectLocalZ0 } from './rayPaper.ts';
@@ -26,6 +26,8 @@ const _inv = new Matrix4();
 const _panelDefault = new Vector3();
 const _leftWorld = new Vector3();
 const _rightWorld = new Vector3();
+const _leftPalm = new Vector3();
+const _rightPalm = new Vector3();
 const _scratchWorld = new Vector3();
 const _leftRayOrigin = new Vector3();
 const _leftRayDir = new Vector3();
@@ -101,6 +103,9 @@ export interface HandInteractionHandlers {
     hingeAxis?: string;
     geometryState?: string;
     finalPhase?: string;
+    batCommits?: string;
+    batValid?: string;
+    batPivot?: string;
     sideFolds?: string;
     decorState?: string;
     movingFaces?: number;
@@ -158,11 +163,7 @@ export interface HandInteractionHandlers {
       dragMode?: string;
       rayDistance?: number;
     };
-    playScale?: {
-      state: string;
-      scale: number;
-      handDistanceM: number | null;
-    };
+    playScale?: PlayScaleDebug;
   };
 }
 
@@ -174,6 +175,17 @@ function worldToPaperLocal(paperRoot: Group, world: Vector3): Vec3 {
   _local.copy(world);
   paperRoot.worldToLocal(_local);
   return toVec3(_local);
+}
+
+function palmDirection(sample: HandSample, target: Vector3): Vector3 | null {
+  if (!sample.wrist || !sample.palm) {
+    return null;
+  }
+  target.set(sample.palm[0] - sample.wrist[0], sample.palm[1] - sample.wrist[1], sample.palm[2] - sample.wrist[2]);
+  if (target.lengthSq() < 1e-8) {
+    return null;
+  }
+  return target.normalize();
 }
 
 function worldPointForHand(sample: HandSample, paperRoot: Group, target: Vector3): Vector3 | null {
@@ -327,11 +339,13 @@ export function createHandInteractionSystem(handlers: HandInteractionHandlers) {
           pinching: snapshot.left.pinch === 'closed',
           tracking: snapshot.left.tracking,
           point: leftWorld,
+          palmUp: palmDirection(snapshot.left.sample, _leftPalm),
         },
         right: {
           pinching: snapshot.right.pinch === 'closed',
           tracking: snapshot.right.tracking,
           point: rightWorld,
+          palmUp: palmDirection(snapshot.right.sample, _rightPalm),
         },
         dtSec: delta,
         viewer: this.camera.position,

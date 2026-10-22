@@ -89,6 +89,7 @@ export class OrigamiEngine {
   private holdMs = 0;
   private lockedCreaseIds = new Set<string>();
   private silhouettePassed = true;
+  private commitEvents = 0;
   private foldT = 0;
   private lastFoldT = 0;
   private lastRawT = 0;
@@ -285,6 +286,10 @@ export class OrigamiEngine {
     return this.committed >= this.recipe.steps.length;
   }
 
+  get commitEventCount(): number {
+    return this.commitEvents;
+  }
+
   canStartCreature(): boolean {
     return this.isComplete() && this.silhouettePassed;
   }
@@ -308,6 +313,7 @@ export class OrigamiEngine {
     this.holdMs = 0;
     this.lockedCreaseIds.clear();
     this.committedStepIds.clear();
+    this.commitEvents = 0;
     this.liveSnapshot = null;
     this.silhouettePassed = true;
     this.resetSnapArm();
@@ -493,7 +499,13 @@ export class OrigamiEngine {
     if (!step) {
       return;
     }
+    if (this.committedStepIds.has(step.id)) {
+      this.phase = this.committed >= this.recipe.steps.length ? 'locked' : 'idle';
+      this.holdMs = 0;
+      return;
+    }
     this.committed += 1;
+    this.commitEvents += 1;
     this.committedStepIds.add(step.id);
     const from = this.fromSnapshot;
     if (step.parallelGroup && from && usesAxisAngleFold(step)) {

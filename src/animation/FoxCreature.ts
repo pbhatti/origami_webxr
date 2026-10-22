@@ -52,6 +52,8 @@ export class FoxCreature {
   private origin = new Vector3();
   private puppet: Object3D | null = null;
   private readonly puppetHome = new Vector3();
+  private readonly motion = new Vector3();
+  private held = false;
 
   constructor() {
     this.group.name = 'fold-fly-fox';
@@ -99,6 +101,7 @@ export class FoxCreature {
       this.puppet.position.copy(this.puppetHome);
       this.puppet.rotation.set(0, 0, 0);
     }
+    this.held = false;
     this.puppet = null;
   }
 
@@ -106,18 +109,37 @@ export class FoxCreature {
     return this.playing;
   }
 
+  setHeld(held: boolean): void {
+    if (held === this.held) {
+      return;
+    }
+    if (this.held && !held && this.puppet) {
+      this.puppetMotion(this.motion);
+      this.puppetHome.copy(this.puppet.position).sub(this.motion);
+    }
+    this.held = held;
+  }
+
   tick(dtSec: number): void {
     if (!this.playing) {
       return;
     }
     this.elapsed += dtSec;
-    const bob = Math.sin(this.elapsed * 1.4) * 0.008;
     if (this.puppet) {
-      this.puppet.position.set(this.puppetHome.x, this.puppetHome.y + bob, this.puppetHome.z);
+      if (this.held) {
+        return;
+      }
+      this.puppetMotion(this.motion);
+      this.puppet.position.copy(this.puppetHome).add(this.motion);
       this.puppet.rotation.z = Math.sin(this.elapsed * 0.9) * 0.03;
       return;
     }
+    const bob = Math.sin(this.elapsed * 1.4) * 0.008;
     this.group.position.set(this.origin.x, this.origin.y + 0.04 + bob, this.origin.z);
+  }
+
+  private puppetMotion(target: Vector3): Vector3 {
+    return target.set(0, Math.sin(this.elapsed * 1.4) * 0.008, 0);
   }
 
   presentFace(host: Object3D, visible: boolean): void {

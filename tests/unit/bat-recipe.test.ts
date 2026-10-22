@@ -12,6 +12,8 @@ import { validateRecipe } from '../../src/origami/RecipeValidator.ts';
 import { BAT_NAMED, BAT_PAPER_COLOR, BAT_RECIPE, BAT_STEPS, batFinalPhase } from '../../src/origami/recipes/bat.recipe.ts';
 import { WHALE_RECIPE } from '../../src/origami/recipes/whale.recipe.ts';
 import { FOX_RECIPE } from '../../src/origami/recipes/fox.recipe.ts';
+import { OWL_RECIPE } from '../../src/origami/recipes/owl.recipe.ts';
+import { BAT_EYE_Y, BAT_FACE_Z } from '../../src/origami/batFinalShape.ts';
 
 vi.spyOn(console, 'info').mockImplementation(() => {});
 
@@ -60,10 +62,11 @@ describe('origami bat recipe', () => {
     ]);
     const progress = progressFromRecipe(BAT_RECIPE);
     expect(progress.totalSteps).toBe(7);
-    expect(batFinalPhase('bat-head', false)).toBe('HEAD_FOLD');
-    expect(batFinalPhase('bat-notch', false)).toBe('EAR_CUT');
-    expect(batFinalPhase('bat-face', false)).toBe('FACE_REVEAL');
-    expect(batFinalPhase('bat-face', true)).toBe('COMPLETE');
+    expect(batFinalPhase('bat-head', false)).toBe('head-fold');
+    expect(batFinalPhase('bat-notch', false)).toBe('ear-cut');
+    expect(batFinalPhase('bat-face', false)).toBe('face-attachment');
+    expect(batFinalPhase('bat-face', true)).toBe('complete');
+    expect(batFinalPhase('bat-left-wing-open', false)).toBeNull();
   });
 
   it('keeps every displayed crease on its hinge', () => {
@@ -116,7 +119,37 @@ describe('origami bat recipe', () => {
     expect(engine.progress()).toMatchObject({ committedCount: 6, totalSteps: 7, activeIndex: 6 });
     commitCurrent(engine);
     expect(engine.currentStep?.id).toBe('bat-face');
+    expect(engine.isComplete()).toBe(false);
+    expect(engine.canStartCreature()).toBe(false);
     expect(engine.progress()).toMatchObject({ committedCount: 6, totalSteps: 7, activeIndex: 6 });
+    expect(engine.commitEventCount).toBe(8);
+    commitCurrent(engine);
+    expect(engine.isComplete()).toBe(true);
+    expect(engine.canStartCreature()).toBe(true);
+    expect(engine.commitEventCount).toBe(9);
+    commitCurrent(engine);
+    expect(engine.commitEventCount).toBe(9);
+  });
+
+  it('cuts a V into the folded head without restoring the wings or the pre-fold edge', () => {
+    const open = BAT_RECIPE.snapshots['both-wings-open'];
+    const headed = BAT_RECIPE.snapshots.headed;
+    const eared = BAT_RECIPE.snapshots.eared;
+    expect(open && headed && eared).toBeTruthy();
+    expect(headed!.named?.L?.[0]).toBeLessThan(-0.12);
+    expect(headed!.named?.RIGHT?.[0]).toBeGreaterThan(0.12);
+    expect(snapshotBounds(headed!).maxY).toBeLessThan(snapshotBounds(open!).maxY - 0.01);
+    const ears = snapshotBounds(eared!);
+    expect(ears.maxY).toBeLessThan(-0.05);
+    expect(ears.maxX).toBeGreaterThan(0.12);
+    expect(ears.minX).toBeLessThan(-0.12);
+    const notch = eared!.vertices.filter((vertex) => Math.abs(vertex[0]) < 0.004 && vertex[1] < ears.maxY - 0.01);
+    expect(notch.length).toBeGreaterThan(0);
+    expect(snapshotArea(eared!)).toBeLessThan(snapshotArea(headed!));
+    expect(BAT_EYE_Y).toBeLessThan(ears.maxY);
+    expect(BAT_EYE_Y).toBeGreaterThan(ears.minY);
+    expect(BAT_FACE_Z).toBeGreaterThan(0.002);
+    expect(validateBatGeometry(eared!, eared!.vertices)).toEqual([]);
   });
 
   it('opens each wing around the hinge that folded it down', () => {
@@ -148,8 +181,13 @@ describe('origami bat recipe', () => {
     expect(tucked?.named?.L?.[1]).toBeLessThan(-0.11);
     expect(extended?.named?.RIGHT?.[0]).toBeGreaterThan(0.12);
     expect(extended?.named?.L?.[0]).toBeLessThan(-0.12);
-    expect(Math.abs(extended?.named?.RIGHT?.[2] ?? 1)).toBeLessThan(0.001);
-    expect(Math.abs(extended?.named?.L?.[2] ?? 1)).toBeLessThan(0.001);
+    expect(extended?.named?.RIGHT?.[2] ?? 0).toBeGreaterThan(0.002);
+    expect(extended?.named?.L?.[2] ?? 0).toBeGreaterThan(0.002);
+    const rightOnly = BAT_RECIPE.snapshots['right-wing-open'];
+    expect(rightOnly?.named?.L?.[0]).toBeLessThan(-0.03);
+    expect(rightOnly?.named?.L?.[1]).toBeLessThan(-0.11);
+    expect(rightOnly?.named?.RIGHT?.[0]).toBeGreaterThan(0.12);
+    expect(Math.abs(rightOnly?.named?.L?.[2] ?? 1)).toBeLessThan(0.001);
   });
 
   it('forms a downward triangle then a wide upper band', () => {
@@ -168,7 +206,9 @@ describe('origami bat recipe', () => {
   it('leaves whale and fox recipes untouched', () => {
     expect(WHALE_RECIPE.steps[0]?.id).toBe('diag-fold');
     expect(FOX_RECIPE.steps[0]?.id).toBe('fox-half');
+    expect(OWL_RECIPE.steps[0]?.id).toBe('owl-center-fold');
     expect(validateRecipe(WHALE_RECIPE)).toEqual([]);
     expect(validateRecipe(FOX_RECIPE)).toEqual([]);
+    expect(validateRecipe(OWL_RECIPE)).toEqual([]);
   });
 });

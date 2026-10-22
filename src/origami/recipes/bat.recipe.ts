@@ -1,7 +1,6 @@
 import { landmarkAfterHinge } from '../CreaseSolver.ts';
 import {
   BAT_FOLD_ASSUMPTIONS,
-  BAT_HEAD_Y_MIN,
   BAT_SHAPE_TOLERANCE_M,
   cutHeadNotch,
   extremaOf,
@@ -17,7 +16,7 @@ const RAD = H * Math.SQRT2;
 const BAND_T = 0.32;
 const BAND = BAND_T * RAD;
 const HEAD_H = 0.38 * BAND;
-const NOTCH_W = 0.012;
+const NOTCH_W = 0.016;
 const NOTCH_D = 0.016;
 
 const L: Vec3 = [-RAD, 0, 0];
@@ -30,9 +29,9 @@ const UL: Vec3 = [-(1 - BAND_T) * RAD, -BAND, 0];
 const UR: Vec3 = [(1 - BAND_T) * RAD, -BAND, 0];
 const HEAD_L: Vec3 = [UL[0] * 0.55, -BAND - HEAD_H, 0];
 const HEAD_R: Vec3 = [UR[0] * 0.55, -BAND - HEAD_H, 0];
-const EAR_L: Vec3 = [-NOTCH_W, -BAND, 0];
-const EAR_R: Vec3 = [NOTCH_W, -BAND, 0];
-const NOTCH: Vec3 = [0, -BAND - NOTCH_D, 0];
+const EAR_L: Vec3 = [-NOTCH_W, HEAD_L[1], 0];
+const EAR_R: Vec3 = [NOTCH_W, HEAD_L[1], 0];
+const NOTCH: Vec3 = [0, HEAD_L[1] - NOTCH_D, 0];
 
 void BAT_FOLD_ASSUMPTIONS;
 
@@ -50,6 +49,19 @@ function arc(from: Vec3, to: Vec3, bulge: number): Vec3[] {
 
 function upArc(from: Vec3, to: Vec3): Vec3[] {
   return [from, [(from[0] + to[0]) / 2, Math.max(from[1], to[1]) + 0.028, 0.03], to];
+}
+
+function raiseExtendedTips(snapshot: MeshSnapshot, z: number): void {
+  for (const vertex of snapshot.vertices) {
+    if (Math.abs(vertex[0]) > 0.105 && Math.abs(vertex[2]) < 0.001) {
+      vertex[2] = z;
+    }
+  }
+  for (const point of Object.values(snapshot.named ?? {})) {
+    if (Math.abs(point[0]) > 0.105 && Math.abs(point[2]) < 0.001) {
+      point[2] = z;
+    }
+  }
 }
 
 function outlineHits(origin: Vec3, dir: Vec3, poly: Vec3[]): Vec3[] {
@@ -230,6 +242,7 @@ const rightOpen = {
 };
 const R_OPEN = landmarkAfterHinge(R_WING, HINGE_OPEN_R, 180, 'valley');
 rightOpen.named = { ...bothDown.named, RIGHT: R_OPEN };
+raiseExtendedTips(rightOpen, 0.004);
 
 const leftOpen = {
   ...applyHingeSnapshot(rightOpen, HINGE_OPEN_L, 'valley', 180, L_WING),
@@ -237,6 +250,7 @@ const leftOpen = {
 };
 const L_OPEN = landmarkAfterHinge(L_WING, HINGE_OPEN_L, 180, 'valley');
 leftOpen.named = { ...rightOpen.named, L: L_OPEN };
+raiseExtendedTips(leftOpen, 0.004);
 
 const headed = {
   ...applyHingeSnapshot(leftOpen, HINGE_HEAD, 'valley', 180, UL),
@@ -244,7 +258,7 @@ const headed = {
 };
 headed.named = { ...leftOpen.named };
 
-const eared = cutHeadNotch(headed, EAR_L, NOTCH, EAR_R, BAT_HEAD_Y_MIN);
+const eared = cutHeadNotch(headed, EAR_L, NOTCH, EAR_R);
 eared.outline = [L_OPEN, EAR_L, NOTCH, EAR_R, R_OPEN, B];
 eared.named = { ...headed.named };
 
@@ -270,20 +284,20 @@ export const BAT_STEPS = [
   'head-and-face',
 ] as const;
 
-export type BatFinalStepPhase = 'HEAD_FOLD' | 'EAR_CUT' | 'FACE_REVEAL' | 'COMPLETE';
+export type BatStep7Phase = 'head-fold' | 'ear-cut' | 'face-attachment' | 'complete';
 
-export function batFinalPhase(stepId: string | null, complete: boolean): BatFinalStepPhase | null {
+export function batFinalPhase(stepId: string | null, complete: boolean): BatStep7Phase | null {
   if (complete) {
-    return 'COMPLETE';
+    return 'complete';
   }
   if (stepId === 'bat-head') {
-    return 'HEAD_FOLD';
+    return 'head-fold';
   }
   if (stepId === 'bat-notch') {
-    return 'EAR_CUT';
+    return 'ear-cut';
   }
   if (stepId === 'bat-face') {
-    return 'FACE_REVEAL';
+    return 'face-attachment';
   }
   return null;
 }
@@ -572,7 +586,7 @@ export const BAT_RECIPE: OrigamiRecipe = {
       minAngleDeg: 0,
       maxAngleDeg: 180,
       targetLandmarks: [],
-      arrowPathLocal: arc([-0.012, BAT_HEAD_Y_MIN, 0.006], [0.012, BAT_HEAD_Y_MIN, 0.006], 0.01),
+      arrowPathLocal: arc([-0.012, HEAD_L[1], 0.006], [0.012, HEAD_L[1], 0.006], 0.01),
       meshStrategy: 'crease-press',
       validationNotes: 'Step 7 face phase: the sheet is already eared. Eyes, smile, and fangs attach to the head. The progress step completes only after this.',
     }),

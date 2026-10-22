@@ -111,6 +111,15 @@ export class HandSession {
     this.blockFoldUntilOpen = true;
   }
 
+  /** A pinch that finished the previous fold must open before the next fold can start. */
+  requireFreshPinch(): void {
+    const fold = this.ownership.fold;
+    if (fold) {
+      this.ownership.releaseFold(fold);
+    }
+    this.blockFoldUntilOpen = true;
+  }
+
   getOwnership(): HandOwnership {
     return this.ownership;
   }

@@ -46,6 +46,8 @@ export class WhaleCreature {
   private origin = new Vector3();
   private puppet: Object3D | null = null;
   private readonly puppetHome = new Vector3();
+  private readonly motion = new Vector3();
+  private held = false;
 
   constructor() {
     this.group.name = 'fold-fly-whale';
@@ -90,11 +92,24 @@ export class WhaleCreature {
       this.puppet.position.copy(this.puppetHome);
       this.puppet.rotation.set(0, 0, 0);
     }
+    this.held = false;
     this.puppet = null;
   }
 
   get active(): boolean {
     return this.playing;
+  }
+
+  /** Freeze locomotion while the finished origami is in the user's hands. */
+  setHeld(held: boolean): void {
+    if (held === this.held) {
+      return;
+    }
+    if (this.held && !held && this.puppet) {
+      this.puppetMotion(this.motion);
+      this.puppetHome.copy(this.puppet.position).sub(this.motion);
+    }
+    this.held = held;
   }
 
   tick(dtSec: number): void {
@@ -104,13 +119,11 @@ export class WhaleCreature {
     this.elapsed += dtSec;
     const tailWag = Math.sin(this.elapsed * 3.4) * 0.16;
     if (this.puppet) {
-      const lift = Math.min(this.elapsed / 0.8, 1) * 0.12;
-      const sway = Math.sin(this.elapsed * 1.6) * 0.03;
-      this.puppet.position.set(
-        this.puppetHome.x + sway,
-        this.puppetHome.y + lift + Math.sin(this.elapsed * 1.3) * 0.012,
-        this.puppetHome.z + Math.sin(this.elapsed * 0.9) * 0.04,
-      );
+      if (this.held) {
+        return;
+      }
+      this.puppetMotion(this.motion);
+      this.puppet.position.copy(this.puppetHome).add(this.motion);
       this.puppet.rotation.z = tailWag * 0.15;
       this.puppet.rotation.y = Math.sin(this.elapsed * 1.1) * 0.12;
       return;
@@ -131,6 +144,16 @@ export class WhaleCreature {
     if (this.elapsed >= 4) {
       this.group.position.lerp(this.origin, 0.08);
     }
+  }
+
+  private puppetMotion(target: Vector3): Vector3 {
+    const lift = Math.min(this.elapsed / 0.8, 1) * 0.12;
+    const sway = Math.sin(this.elapsed * 1.6) * 0.03;
+    return target.set(
+      sway,
+      lift + Math.sin(this.elapsed * 1.3) * 0.012,
+      Math.sin(this.elapsed * 0.9) * 0.04,
+    );
   }
 
   private attachEye(puppet: Object3D): void {

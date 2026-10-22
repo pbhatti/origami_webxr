@@ -5,6 +5,8 @@ import {
   DoubleSide,
   FrontSide,
   Group,
+  LineBasicMaterial,
+  LineSegments,
   Mesh,
   MeshStandardMaterial,
 } from 'three';
@@ -13,6 +15,7 @@ import { clamp, lerp3 } from '../utils/math.ts';
 import { rotateAroundHinge } from './CreaseSolver.ts';
 import { copy3 } from './creaseMath.ts';
 import { deformByHinge, usesAxisAngleFold } from './MeshSplitter.ts';
+import { PAPER_DEPTH, buildPaperMesh } from './paperDepth.ts';
 import { interpolatesMesh, stepActionType, type FoldStep, type MeshSnapshot, type Vec3 } from './types.ts';
 
 export const FOLD_PAPER_COLOR = '#e24a1a';
@@ -20,27 +23,11 @@ export const FOLD_PAPER_COLOR = '#e24a1a';
 function paperMat(color: string): MeshStandardMaterial {
   return new MeshStandardMaterial({
     color: new Color(color),
-    roughness: 0.92,
-    metalness: 0.02,
+    roughness: 0.96,
+    metalness: 0,
     side: DoubleSide,
+    vertexColors: true,
   });
-}
-
-function triangulate(indices: number[]): number[] {
-  if (indices.length === 3) {
-    return [...indices];
-  }
-  const tris: number[] = [];
-  for (let i = 1; i < indices.length - 1; i += 1) {
-    const a = indices[0];
-    const b = indices[i];
-    const c = indices[i + 1];
-    if (a === undefined || b === undefined || c === undefined) {
-      continue;
-    }
-    tris.push(a, b, c);
-  }
-  return tris;
 }
 
 function coupledHingeDeform(step: FoldStep, fromSnap: MeshSnapshot, t: number): Vec3[] {
@@ -113,13 +100,34 @@ export function deformFoldMesh(
 export class FoldPaper {
   readonly group = new Group();
   private readonly mesh: Mesh;
+  private readonly layerBounds: LineSegments;
+  private readonly creaseAxes: LineSegments;
   private geometry = new BufferGeometry();
+  private builtKey = '';
+  private faceCount = 0;
+  private lastSnapshot: MeshSnapshot | null = null;
 
   constructor() {
     this.group.name = 'fold-fly-paper-sheet';
     this.mesh = new Mesh(this.geometry, paperMat(FOLD_PAPER_COLOR));
     this.mesh.name = 'paper-faces';
-    this.group.add(this.mesh);
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+    this.layerBounds = new LineSegments(
+      new BufferGeometry(),
+      new LineBasicMaterial({ color: '#8a5a3a', transparent: true, opacity: 0.85 }),
+    );
+    this.layerBounds.name = 'paper-layer-bounds';
+    this.layerBounds.visible = false;
+    this.layerBounds.frustumCulled = false;
+    this.creaseAxes = new LineSegments(
+      new BufferGeometry(),
+      new LineBasicMaterial({ color: '#2f6fbe', transparent: true, opacity: 0.9 }),
+    );
+    this.creaseAxes.name = 'paper-crease-axes';
+    this.creaseAxes.visible = false;
+    this.creaseAxes.frustumCulled = false;
+    this.group.add(this.mesh, this.layerBounds, this.creaseAxes);
   }
 
   get material(): MeshStandardMaterial {
@@ -130,8 +138,26 @@ export class FoldPaper {
     return this.mesh.uuid;
   }
 
+  get layerCount(): number {
+    return this.faceCount;
+  }
+
   setColor(color: string): void {
     this.material.color.set(color);
+  }
+
+  /** Warm the paper slightly while it is held. The shell geometry stays put. */
+  setGrabHighlight(active: boolean): void {
+    this.material.emissive.set(active ? 0x6a4332 : 0x000000);
+    this.material.emissiveIntensity = active ? 0.22 : 0;
+  }
+
+  syncDepthDebug(): void {
+    this.layerBounds.visible = PAPER_DEPTH.showLayerBounds;
+    this.creaseAxes.visible = PAPER_DEPTH.showCreaseAxes;
+    if (this.lastSnapshot && (PAPER_DEPTH.shadows ? '1' : '0') !== this.shadowToken()) {
+      this.setSnapshot(this.lastSnapshot);
+    }
   }
 
   applyInspector(active = true): void {
@@ -153,36 +179,47 @@ export class FoldPaper {
   }
 
   setSnapshot(snapshot: MeshSnapshot): void {
-    const positions: number[] = [];
-    const normals: number[] = [];
-    for (const face of snapshot.faces) {
-      const tris = triangulate(face.vertices);
-      const lift = face.layer * 0.00065;
-      for (let i = 0; i < tris.length; i += 3) {
-        const ia = snapshot.vertices[tris[i] ?? 0] ?? [0, 0, 0];
-        const ib = snapshot.vertices[tris[i + 1] ?? 0] ?? [0, 0, 0];
-        const ic = snapshot.vertices[tris[i + 2] ?? 0] ?? [0, 0, 0];
-        positions.push(ia[0], ia[1], ia[2] + lift, ib[0], ib[1], ib[2] + lift, ic[0], ic[1], ic[2] + lift);
-        const abx = ib[0] - ia[0];
-        const aby = ib[1] - ia[1];
-        const abz = ib[2] - ia[2];
-        const acx = ic[0] - ia[0];
-        const acy = ic[1] - ia[1];
-        const acz = ic[2] - ia[2];
-        let nx = aby * acz - abz * acy;
-        let ny = abz * acx - abx * acz;
-        let nz = abx * acy - aby * acx;
-        const len = Math.hypot(nx, ny, nz) || 1;
-        nx /= len;
-        ny /= len;
-        nz /= len;
-        normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
-      }
+    this.lastSnapshot = snapshot;
+    const key = `${snapshotKey(snapshot)}|${this.shadowToken()}`;
+    if (key === this.builtKey) {
+      return;
     }
+    this.builtKey = key;
+    const built = buildPaperMesh(snapshot, PAPER_DEPTH.shadows);
+    this.faceCount = built.faceCount;
     this.geometry.dispose();
     this.geometry = new BufferGeometry();
-    this.geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
-    this.geometry.setAttribute('normal', new BufferAttribute(new Float32Array(normals), 3));
+    this.geometry.setAttribute('position', new BufferAttribute(built.positions, 3));
+    this.geometry.setAttribute('normal', new BufferAttribute(built.normals, 3));
+    this.geometry.setAttribute('color', new BufferAttribute(built.colors, 3));
     this.mesh.geometry = this.geometry;
+    replaceLines(this.layerBounds, built.layerLines);
+    replaceLines(this.creaseAxes, built.creaseLines);
   }
+
+  private shadowToken(): string {
+    return PAPER_DEPTH.shadows ? '1' : '0';
+  }
+}
+
+function snapshotKey(snapshot: MeshSnapshot): string {
+  let hash = snapshot.vertices.length * 131 + snapshot.faces.length;
+  for (const vertex of snapshot.vertices) {
+    hash = (Math.imul(hash, 33) + Math.round(vertex[0] * 1e5)) | 0;
+    hash = (Math.imul(hash, 33) + Math.round(vertex[1] * 1e5)) | 0;
+    hash = (Math.imul(hash, 33) + Math.round(vertex[2] * 1e5)) | 0;
+  }
+  for (const face of snapshot.faces) {
+    hash = (Math.imul(hash, 33) + face.layer) | 0;
+    hash = (Math.imul(hash, 33) + face.vertices.length) | 0;
+  }
+  return String(hash);
+}
+
+function replaceLines(lines: LineSegments, data: Float32Array): void {
+  const geometry = new BufferGeometry();
+  const source = data.length >= 6 ? data : new Float32Array(6);
+  geometry.setAttribute('position', new BufferAttribute(source, 3));
+  lines.geometry.dispose();
+  lines.geometry = geometry;
 }

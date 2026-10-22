@@ -67,6 +67,8 @@ export class OwlCreature {
   private origin = new Vector3();
   private puppet: Object3D | null = null;
   private readonly puppetHome = new Vector3();
+  private readonly motion = new Vector3();
+  private held = false;
 
   constructor() {
     this.group.name = 'fold-play-owl';
@@ -124,11 +126,23 @@ export class OwlCreature {
       this.puppet.position.copy(this.puppetHome);
       this.puppet.rotation.set(0, 0, 0);
     }
+    this.held = false;
     this.puppet = null;
   }
 
   get active(): boolean {
     return this.playing;
+  }
+
+  setHeld(held: boolean): void {
+    if (held === this.held) {
+      return;
+    }
+    if (this.held && !held && this.puppet) {
+      this.puppetMotion(this.motion);
+      this.puppetHome.copy(this.puppet.position).sub(this.motion);
+    }
+    this.held = held;
   }
 
   setReveal(amount: number): void {
@@ -168,12 +182,19 @@ export class OwlCreature {
     const bob = Math.sin(this.elapsed * 1.5) * 0.008;
     const flutter = Math.sin(this.elapsed * 2.2) * 0.03;
     if (this.puppet) {
-      this.puppet.position.set(this.puppetHome.x, this.puppetHome.y + bob, this.puppetHome.z);
-      this.puppet.rotation.y = flutter;
+      if (!this.held) {
+        this.puppetMotion(this.motion);
+        this.puppet.position.copy(this.puppetHome).add(this.motion);
+        this.puppet.rotation.y = flutter;
+      }
       return;
     }
     this.group.position.set(this.origin.x, this.origin.y + bob, this.origin.z);
     this.group.rotation.y = flutter;
+  }
+
+  private puppetMotion(target: Vector3): Vector3 {
+    return target.set(0, Math.sin(this.elapsed * 1.5) * 0.008, 0);
   }
 
   private applyReveal(): void {

@@ -1,22 +1,27 @@
 import {
+  AxesHelper,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  Euler,
   Group,
   LinearFilter,
   LineBasicMaterial,
   LineSegments,
   MathUtils,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
+  Quaternion,
   SphereGeometry,
   SRGBColorSpace,
   Vector3,
   type Object3D,
 } from 'three';
 import type { TrackingLossMode } from '../input/trackingLoss.ts';
-import { clampPaperReach } from '../origami/PaperMover.ts';
+import { PAPER_MOVE_MAX_DISTANCE_M, PAPER_MOVE_MIN_DISTANCE_M } from '../origami/placement.ts';
+import { PAPER_DEPTH } from '../origami/paperDepth.ts';
 import { debugEvents } from '../telemetry/DebugEvents.ts';
 import { FONT_SANS, theme } from '../theme/tokens.ts';
 import { clamp, easeOutCubic } from '../utils/math.ts';
@@ -40,18 +45,21 @@ export const CREATURE_SAFE_CLEARANCE_M = 0.18;
 const INDICATOR_HOLD_SEC = 0.18;
 const INDICATOR_FADE_SEC = 0.24;
 
-export type PlayInteractionState =
-  | 'IDLE'
-  | 'HOVERED'
-  | 'SINGLE_HAND_GRAB'
-  | 'TWO_HAND_SCALING'
-  | 'RELEASED'
-  | 'TRACKING_LOST';
+export type OrigamiInteractionState =
+  | 'folding'
+  | 'completed-idle'
+  | 'one-hand-grab'
+  | 'two-hand-transform'
+  | 'released';
+
+export type PlayInteractionState = OrigamiInteractionState;
 
 export interface PlayHandSample {
   pinching: boolean;
   tracking: TrackingLossMode;
   point: Vector3 | null;
+  /** Wrist-to-palm direction in world space. Supplies the roll axis for two-hand rotation. */
+  palmUp?: Vector3 | null;
 }
 
 export interface PlayManipulationFrame {
@@ -62,9 +70,20 @@ export interface PlayManipulationFrame {
 }
 
 export interface PlayScaleDebug {
-  state: PlayInteractionState;
+  state: OrigamiInteractionState;
   scale: number;
   handDistanceM: number | null;
+  initialHandDistanceM: number | null;
+  position: [number, number, number];
+  rotationDeg: [number, number, number];
+  root: string;
+  layerCount: number;
+  shadows: boolean;
+  trackingLost: boolean;
+  leftTracking: string;
+  rightTracking: string;
+  leftPinch: boolean;
+  rightPinch: boolean;
 }
 
 interface HandRead {
@@ -81,6 +100,19 @@ const _center = new Vector3();
 const _corner = new Vector3();
 const _grabWorld = new Vector3();
 const _delta = new Vector3();
+const _mid = new Vector3();
+const _axisX = new Vector3();
+const _axisY = new Vector3();
+const _axisZ = new Vector3();
+const _upHint = new Vector3();
+const _basis = new Matrix4();
+const _handFrame = new Quaternion();
+const _qDelta = new Quaternion();
+const _qTarget = new Quaternion();
+const _parentQuat = new Quaternion();
+const _worldScale = new Vector3();
+const _euler = new Euler();
+const _worldUp = new Vector3(0, 1, 0);
 const _min = new Vector3();
 const _max = new Vector3();
 const _fallbackMin = new Vector3(-0.1, -0.1, -0.02);
@@ -118,9 +150,51 @@ export function nextUniformScale(
 }
 
 /**
- * Shared completed-animal control. Scale is applied to `scaleRoot` so whale,
- * fox, bat, and later models keep their existing animation hierarchy.
- * Grabbing moves `animalRoot` and leaves panels outside `scaleRoot` alone.
+ * Orthonormal frame for two hands. X follows the pinch span. The palm
+ * directions supply the remaining axis so the gesture can pitch, yaw, and roll.
+ * World up is the fallback when a palm normal is not available.
+ */
+export function handFrameQuaternion(
+  left: Vector3,
+  right: Vector3,
+  leftPalm: Vector3 | null,
+  rightPalm: Vector3 | null,
+  target: Quaternion,
+): Quaternion {
+  _axisX.subVectors(right, left);
+  if (_axisX.lengthSq() < 1e-8) {
+    return target.identity();
+  }
+  _axisX.normalize();
+  _upHint.set(0, 0, 0);
+  if (leftPalm) {
+    _upHint.add(leftPalm);
+  }
+  if (rightPalm) {
+    _upHint.add(rightPalm);
+  }
+  if (_upHint.lengthSq() < 1e-6) {
+    _upHint.copy(_worldUp);
+  }
+  _upHint.normalize();
+  _axisY.copy(_upHint).addScaledVector(_axisX, -_upHint.dot(_axisX));
+  if (_axisY.lengthSq() < 1e-6) {
+    _upHint.set(0, 0, 1);
+    _axisY.copy(_upHint).addScaledVector(_axisX, -_upHint.dot(_axisX));
+  }
+  if (_axisY.lengthSq() < 1e-6) {
+    return target.identity();
+  }
+  _axisY.normalize();
+  _axisZ.crossVectors(_axisX, _axisY).normalize();
+  _basis.makeBasis(_axisX, _axisY, _axisZ);
+  return target.setFromRotationMatrix(_basis);
+}
+
+/**
+ * Shared completed-animal control. Translation, rotation, and uniform scale
+ * are applied to `scaleRoot` (the origami assembly) so panels that stay on
+ * `animalRoot` are left alone. Whale, fox, bat, owl, and later models share it.
  */
 export class CompletedOrigamiManipulator {
   private readonly feedback = new Group();
@@ -140,7 +214,7 @@ export class CompletedOrigamiManipulator {
   private hasViewer = false;
   private gesture: 'none' | 'grab' | 'scale' = 'none';
   private grabHand: 'left' | 'right' | null = null;
-  private stateValue: PlayInteractionState = 'IDLE';
+  private stateValue: OrigamiInteractionState = 'completed-idle';
   private scaleValue = CREATURE_SCALE.defaultScale;
   private initialScale = CREATURE_SCALE.defaultScale;
   private initialDistance = 1;
@@ -153,6 +227,25 @@ export class CompletedOrigamiManipulator {
   private fadeElapsed = 0;
   private labelText = '';
   private playing = false;
+  private trackingLost = false;
+  private highlighted = false;
+  private assemblyLayers = 0;
+  private referenceDistance: number | null = null;
+  private leftTracking = 'ok';
+  private rightTracking = 'ok';
+  private leftPinch = false;
+  private rightPinch = false;
+  private leftPalmOk = false;
+  private rightPalmOk = false;
+  private readonly leftPalm = new Vector3();
+  private readonly rightPalm = new Vector3();
+  private readonly initialHandFrame = new Quaternion();
+  private readonly initialWorldQuat = new Quaternion();
+  private readonly initialWorldPos = new Vector3();
+  private readonly initialMid = new Vector3();
+  private readonly initialOffset = new Vector3();
+  private readonly pivot: AxesHelper;
+  private highlight: ((active: boolean) => void) | null = null;
 
   constructor(
     private readonly animalRoot: Object3D,
@@ -187,10 +280,22 @@ export class CompletedOrigamiManipulator {
     this.distanceLine.geometry.setAttribute('position', new BufferAttribute(new Float32Array(6), 3));
     this.feedback.add(this.outline, this.label, this.leftMarker, this.rightMarker, this.distanceLine);
     this.animalRoot.add(this.feedback);
+    this.pivot = new AxesHelper(0.035);
+    this.pivot.name = 'origami-pivot';
+    this.pivot.visible = false;
+    this.scaleRoot.add(this.pivot);
     this.scaleRoot.scale.setScalar(this.scaleValue);
   }
 
-  get state(): PlayInteractionState {
+  setHighlight(handler: (active: boolean) => void): void {
+    this.highlight = handler;
+  }
+
+  setAssembly(layerCount: number): void {
+    this.assemblyLayers = layerCount;
+  }
+
+  get state(): OrigamiInteractionState {
     return this.stateValue;
   }
 
@@ -203,16 +308,33 @@ export class CompletedOrigamiManipulator {
   }
 
   debugView(): PlayScaleDebug {
+    this.scaleRoot.updateWorldMatrix(true, false);
+    this.scaleRoot.getWorldPosition(_grabWorld);
+    this.scaleRoot.getWorldQuaternion(_qTarget);
+    _euler.setFromQuaternion(_qTarget, 'YXZ');
+    const degrees = 180 / Math.PI;
     return {
       state: this.stateValue,
       scale: this.scaleValue,
       handDistanceM: this.handDistance,
+      initialHandDistanceM: this.referenceDistance,
+      position: [_grabWorld.x, _grabWorld.y, _grabWorld.z],
+      rotationDeg: [_euler.x * degrees, _euler.y * degrees, _euler.z * degrees],
+      root: this.scaleRoot.name || 'origami-root',
+      layerCount: this.assemblyLayers,
+      shadows: PAPER_DEPTH.shadows,
+      trackingLost: this.trackingLost,
+      leftTracking: this.leftTracking,
+      rightTracking: this.rightTracking,
+      leftPinch: this.leftPinch,
+      rightPinch: this.rightPinch,
     };
   }
 
   face(cameraWorld: Vector3): void {
     this.viewer.copy(cameraWorld);
     this.hasViewer = true;
+    this.pivot.visible = PAPER_DEPTH.showPivot;
     if (this.label.visible) {
       this.label.lookAt(cameraWorld);
     }
@@ -229,6 +351,8 @@ export class CompletedOrigamiManipulator {
       this.opacity = 0;
       this.handDistance = null;
     }
+    this.stateValue = 'folding';
+    this.syncHighlight();
     if (ending || this.fading || this.outline.visible || this.label.visible) {
       this.tickVisuals(0);
     } else {
@@ -242,7 +366,9 @@ export class CompletedOrigamiManipulator {
     this.grabHand = null;
     this.scaleSession = false;
     this.suppressUntilOpen = true;
-    this.stateValue = 'IDLE';
+    this.trackingLost = false;
+    this.referenceDistance = null;
+    this.stateValue = 'completed-idle';
     this.fading = false;
     this.fadeHold = 0;
     this.fadeElapsed = 0;
@@ -250,7 +376,10 @@ export class CompletedOrigamiManipulator {
     this.handDistance = null;
     this.scaleValue = CREATURE_SCALE.defaultScale;
     this.initialScale = this.scaleValue;
+    this.scaleRoot.position.set(0, 0, 0);
+    this.scaleRoot.quaternion.identity();
     this.scaleRoot.scale.setScalar(this.scaleValue);
+    this.syncHighlight();
     this.hideVisuals();
   }
 
@@ -264,6 +393,7 @@ export class CompletedOrigamiManipulator {
 
     if (!CREATURE_SCALE.enabled) {
       this.stopGesture(true);
+      this.syncHighlight();
       this.tickVisuals(frame.dtSec);
       return;
     }
@@ -271,6 +401,7 @@ export class CompletedOrigamiManipulator {
     if (this.suppressUntilOpen) {
       if (!frame.left.pinching && !frame.right.pinching) {
         this.suppressUntilOpen = false;
+        this.trackingLost = false;
       } else {
         this.tickVisuals(frame.dtSec);
         return;
@@ -279,13 +410,16 @@ export class CompletedOrigamiManipulator {
 
     if (this.trackingFailed(left, right)) {
       this.loseTracking();
+      this.syncHighlight();
       this.tickVisuals(frame.dtSec);
       return;
     }
 
+    const twoHand = PAPER_DEPTH.twoHand;
     const span = this.handDistance ?? 0;
-    const continueScale = this.gesture === 'scale' && left.live && right.live && left.point != null && right.point != null;
+    const continueScale = twoHand && this.gesture === 'scale' && left.live && right.live && left.point != null && right.point != null;
     const canScale =
+      twoHand &&
       this.gesture !== 'scale' &&
       left.live &&
       right.live &&
@@ -295,10 +429,11 @@ export class CompletedOrigamiManipulator {
 
     if ((canScale || continueScale) && left.point && right.point) {
       if (this.gesture !== 'scale') {
-        this.beginScale(left.point, right.point);
+        this.beginTwoHand(left.point, right.point);
       }
-      this.applyScale(left.point, right.point, frame.dtSec);
-      this.stateValue = 'TWO_HAND_SCALING';
+      this.applyTwoHand(left.point, right.point, frame.dtSec);
+      this.stateValue = 'two-hand-transform';
+      this.syncHighlight();
       this.tickVisuals(frame.dtSec);
       return;
     }
@@ -311,7 +446,7 @@ export class CompletedOrigamiManipulator {
       !right.cancelled &&
       (frame.left.tracking === 'frozen' || frame.right.tracking === 'frozen');
     if (frozenHold) {
-      this.stateValue = 'TWO_HAND_SCALING';
+      this.stateValue = 'two-hand-transform';
       this.tickVisuals(frame.dtSec);
       return;
     }
@@ -322,8 +457,9 @@ export class CompletedOrigamiManipulator {
       if (remaining?.point) {
         this.beginGrab(remaining.id, remaining.point);
         this.applyGrab(remaining.point);
-        this.stateValue = 'SINGLE_HAND_GRAB';
+        this.stateValue = 'one-hand-grab';
       }
+      this.syncHighlight();
       this.tickVisuals(frame.dtSec);
       return;
     }
@@ -334,18 +470,25 @@ export class CompletedOrigamiManipulator {
         this.beginGrab(grab.id, grab.point);
       }
       this.applyGrab(grab.point);
-      this.stateValue = 'SINGLE_HAND_GRAB';
+      this.stateValue = 'one-hand-grab';
+      this.syncHighlight();
       this.tickVisuals(frame.dtSec);
       return;
     }
 
+    let justReleased = false;
     if (this.gesture === 'grab') {
       this.gesture = 'none';
       this.grabHand = null;
-      this.stateValue = 'RELEASED';
+      this.stateValue = 'released';
+      this.syncHighlight();
+      justReleased = true;
     }
 
-    this.settleIdle(left, right);
+    if (!justReleased) {
+      this.settleIdle(left, right);
+    }
+    this.syncHighlight();
     this.tickVisuals(frame.dtSec);
   }
 
@@ -361,6 +504,18 @@ export class CompletedOrigamiManipulator {
     }
     if (frame.right.point) {
       this.rightPoint.copy(frame.right.point);
+    }
+    this.leftTracking = frame.left.tracking;
+    this.rightTracking = frame.right.tracking;
+    this.leftPinch = frame.left.pinching;
+    this.rightPinch = frame.right.pinching;
+    this.leftPalmOk = frame.left.palmUp != null;
+    this.rightPalmOk = frame.right.palmUp != null;
+    if (frame.left.palmUp) {
+      this.leftPalm.copy(frame.left.palmUp);
+    }
+    if (frame.right.palmUp) {
+      this.rightPalm.copy(frame.right.palmUp);
     }
     this.hasViewer = frame.viewer != null;
     if (frame.viewer) {
@@ -420,40 +575,62 @@ export class CompletedOrigamiManipulator {
   }
 
   private beginGrab(id: 'left' | 'right', point: Vector3): void {
-    this.animalRoot.updateWorldMatrix(true, false);
+    const fresh = this.gesture === 'none';
+    this.scaleRoot.updateWorldMatrix(true, false);
     this.grabLocal.copy(point);
-    this.animalRoot.worldToLocal(this.grabLocal);
+    this.scaleRoot.worldToLocal(this.grabLocal);
     this.grabHand = id;
     this.gesture = 'grab';
-    this.stateValue = 'SINGLE_HAND_GRAB';
-  }
-
-  private applyGrab(point: Vector3): void {
-    this.animalRoot.updateWorldMatrix(true, false);
-    _grabWorld.copy(this.grabLocal);
-    this.animalRoot.localToWorld(_grabWorld);
-    _delta.copy(point).sub(_grabWorld);
-    this.animalRoot.position.add(_delta);
-    if (this.hasViewer) {
-      clampPaperReach(this.animalRoot, this.viewer);
+    this.stateValue = 'one-hand-grab';
+    if (fresh) {
+      playPaperRustle();
     }
   }
 
-  private beginScale(a: Vector3, b: Vector3): void {
+  private applyGrab(point: Vector3): void {
+    this.scaleRoot.updateWorldMatrix(true, false);
+    _grabWorld.copy(this.grabLocal);
+    this.scaleRoot.localToWorld(_grabWorld);
+    _delta.copy(point).sub(_grabWorld);
+    const parent = this.scaleRoot.parent;
+    if (parent) {
+      parent.updateWorldMatrix(true, false);
+      parent.getWorldQuaternion(_parentQuat);
+      parent.getWorldScale(_worldScale);
+      _delta.applyQuaternion(_parentQuat.invert());
+      _delta.x /= _worldScale.x || 1;
+      _delta.y /= _worldScale.y || 1;
+      _delta.z /= _worldScale.z || 1;
+    }
+    this.scaleRoot.position.add(_delta);
+    this.clampRootReach();
+  }
+
+  private beginTwoHand(a: Vector3, b: Vector3): void {
+    const fresh = this.gesture === 'none';
     this.initialDistance = Math.max(a.distanceTo(b), CREATURE_MIN_HAND_SPAN_M);
+    this.referenceDistance = this.initialDistance;
     this.initialScale = this.scaleValue;
+    this.scaleRoot.updateWorldMatrix(true, false);
+    this.scaleRoot.getWorldPosition(this.initialWorldPos);
+    this.scaleRoot.getWorldQuaternion(this.initialWorldQuat);
+    this.initialMid.copy(a).add(b).multiplyScalar(0.5);
+    this.initialOffset.copy(this.initialWorldPos).sub(this.initialMid);
+    handFrameQuaternion(a, b, this.palm('left'), this.palm('right'), this.initialHandFrame);
     this.gesture = 'scale';
     this.grabHand = null;
     this.scaleSession = true;
-    this.stateValue = 'TWO_HAND_SCALING';
+    this.stateValue = 'two-hand-transform';
     this.opacity = 1;
     this.fading = false;
     this.fadeHold = 0;
     debugEvents.emit('creatureScaleStarted', { scale: this.initialScale });
-    playScaleTone();
+    if (fresh) {
+      playPaperRustle();
+    }
   }
 
-  private applyScale(a: Vector3, b: Vector3, dtSec: number): void {
+  private applyTwoHand(a: Vector3, b: Vector3, dtSec: number): void {
     const distance = Math.max(a.distanceTo(b), 0.001);
     let target = nextUniformScale(this.initialScale, this.initialDistance, distance);
     if (this.hasViewer) {
@@ -466,7 +643,77 @@ export class CompletedOrigamiManipulator {
     if (!Number.isFinite(this.scaleValue)) {
       this.scaleValue = this.initialScale;
     }
+    const ratio = this.scaleValue / Math.max(this.initialScale, 1e-4);
+    handFrameQuaternion(a, b, this.palm('left'), this.palm('right'), _handFrame);
+    _qDelta.copy(this.initialHandFrame).invert();
+    _qDelta.premultiply(_handFrame);
+    _qTarget.copy(this.initialWorldQuat).premultiply(_qDelta);
+    _grabWorld.copy(this.initialOffset).multiplyScalar(ratio).applyQuaternion(_qDelta);
+    _mid.copy(a).add(b).multiplyScalar(0.5);
+    _grabWorld.add(_mid);
+    this.writeRootWorld(_grabWorld, _qTarget);
     this.scaleRoot.scale.setScalar(this.scaleValue);
+  }
+
+  private palm(id: 'left' | 'right'): Vector3 | null {
+    if (id === 'left') {
+      return this.leftPalmOk ? this.leftPalm : null;
+    }
+    return this.rightPalmOk ? this.rightPalm : null;
+  }
+
+  private writeRootWorld(worldPos: Vector3, worldQuat: Quaternion): void {
+    const parent = this.scaleRoot.parent;
+    if (!parent) {
+      this.scaleRoot.position.copy(worldPos);
+      this.scaleRoot.quaternion.copy(worldQuat);
+      return;
+    }
+    parent.updateWorldMatrix(true, false);
+    _corner.copy(worldPos);
+    parent.worldToLocal(_corner);
+    parent.getWorldQuaternion(_parentQuat);
+    _parentQuat.invert().multiply(worldQuat);
+    this.scaleRoot.position.copy(_corner);
+    this.scaleRoot.quaternion.copy(_parentQuat);
+  }
+
+  private clampRootReach(): void {
+    if (!this.hasViewer) {
+      return;
+    }
+    const parent = this.scaleRoot.parent;
+    this.scaleRoot.updateWorldMatrix(true, false);
+    this.scaleRoot.getWorldPosition(_grabWorld);
+    _delta.copy(_grabWorld).sub(this.viewer);
+    const distance = _delta.length();
+    let changed = false;
+    if (!Number.isFinite(distance) || distance < 1e-5) {
+      _grabWorld.copy(this.viewer);
+      _grabWorld.z -= PAPER_MOVE_MIN_DISTANCE_M;
+      changed = true;
+    } else if (distance < PAPER_MOVE_MIN_DISTANCE_M) {
+      _delta.setLength(PAPER_MOVE_MIN_DISTANCE_M);
+      _grabWorld.copy(this.viewer).add(_delta);
+      changed = true;
+    } else if (distance > PAPER_MOVE_MAX_DISTANCE_M) {
+      _delta.setLength(PAPER_MOVE_MAX_DISTANCE_M);
+      _grabWorld.copy(this.viewer).add(_delta);
+      changed = true;
+    }
+    const minY = this.viewer.y - 0.65;
+    const maxY = this.viewer.y + 0.45;
+    if (_grabWorld.y < minY || _grabWorld.y > maxY) {
+      _grabWorld.y = Math.min(maxY, Math.max(minY, _grabWorld.y));
+      changed = true;
+    }
+    if (!changed) {
+      return;
+    }
+    if (parent) {
+      parent.worldToLocal(_grabWorld);
+    }
+    this.scaleRoot.position.copy(_grabWorld);
   }
 
   private clampClearance(target: number): number {
@@ -487,6 +734,15 @@ export class CompletedOrigamiManipulator {
     return clamp(Math.min(target, Math.max(limit, this.initialScale)), CREATURE_SCALE.minScale, CREATURE_SCALE.maxScale);
   }
 
+  private syncHighlight(): void {
+    const active = this.gesture !== 'none';
+    if (active === this.highlighted) {
+      return;
+    }
+    this.highlighted = active;
+    this.highlight?.(active);
+  }
+
   private stopGesture(fade: boolean): void {
     const wasScale = this.gesture === 'scale';
     if (this.gesture === 'none') {
@@ -494,7 +750,7 @@ export class CompletedOrigamiManipulator {
     }
     this.gesture = 'none';
     this.grabHand = null;
-    this.stateValue = 'RELEASED';
+    this.stateValue = 'released';
     if (wasScale) {
       this.emitScaleEnded();
       if (fade) {
@@ -508,7 +764,8 @@ export class CompletedOrigamiManipulator {
     this.gesture = 'none';
     this.grabHand = null;
     this.suppressUntilOpen = true;
-    this.stateValue = 'TRACKING_LOST';
+    this.trackingLost = true;
+    this.stateValue = 'released';
     if (wasScale) {
       this.emitScaleEnded();
       this.startFade();
@@ -525,13 +782,12 @@ export class CompletedOrigamiManipulator {
 
   private settleIdle(left: HandRead, right: HandRead): void {
     const showing = this.fading || this.opacity > 0.02;
-    if (this.stateValue === 'TRACKING_LOST') {
-      this.stateValue = 'IDLE';
-    }
-    if (showing && this.stateValue === 'RELEASED') {
+    if (showing && this.stateValue === 'released') {
       return;
     }
-    this.stateValue = left.near || right.near ? 'HOVERED' : 'IDLE';
+    if (left.near || right.near || this.stateValue === 'released' || this.stateValue === 'completed-idle') {
+      this.stateValue = 'completed-idle';
+    }
   }
 
   private startFade(): void {
@@ -544,16 +800,12 @@ export class CompletedOrigamiManipulator {
   private tickVisuals(dtSec: number): void {
     this.refreshBounds();
     this.updateFade(dtSec);
-    const showGesture = this.gesture === 'scale' || this.fading;
-    const showLabel = this.opacity > 0.02 && (showGesture || (this.playing && CREATURE_SCALE.showScaleMultiplier));
-    const showOutline = this.opacity > 0.02 && showGesture;
-    this.outline.visible = showOutline;
+    const showGesture = this.gesture !== 'none' || this.fading;
+    const showLabel = CREATURE_SCALE.showScaleMultiplier && this.opacity > 0.02 && (showGesture || this.playing);
+    this.outline.visible = false;
     this.label.visible = showLabel;
-    (this.outline.material as LineBasicMaterial).opacity = 0.55 * this.opacity;
     this.labelMaterial.opacity = this.opacity;
-    if (showOutline) {
-      this.writeOutline();
-    }
+    this.pivot.visible = PAPER_DEPTH.showPivot;
     if (showLabel) {
       this.placeLabel();
     }
@@ -610,27 +862,6 @@ export class CompletedOrigamiManipulator {
       point.z >= _bounds.min.z - margin &&
       point.z <= _bounds.max.z + margin
     );
-  }
-
-  private writeOutline(): void {
-    this.animalRoot.updateWorldMatrix(true, false);
-    const attribute = this.outline.geometry.getAttribute('position') as BufferAttribute;
-    const array = attribute.array as Float32Array;
-    let offset = 0;
-    for (const [from, to] of EDGE_PAIRS) {
-      offset = this.writeBoundCorner(from, array, offset);
-      offset = this.writeBoundCorner(to, array, offset);
-    }
-    attribute.needsUpdate = true;
-  }
-
-  private writeBoundCorner(index: number, array: Float32Array, offset: number): number {
-    corner(_bounds.min, _bounds.max, index, _corner);
-    this.animalRoot.worldToLocal(_corner);
-    array[offset] = _corner.x;
-    array[offset + 1] = _corner.y;
-    array[offset + 2] = _corner.z;
-    return offset + 3;
   }
 
   private placeLabel(): void {
@@ -821,7 +1052,7 @@ function paintCanvas(canvas: HTMLCanvasElement, text: string): void {
   ctx.fillText(text, width / 2, height / 2 + 2);
 }
 
-function playScaleTone(): void {
+function playPaperRustle(): void {
   const AudioContextCtor = window.AudioContext
     ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AudioContextCtor) {
@@ -830,18 +1061,26 @@ function playScaleTone(): void {
   try {
     toneContext = toneContext ?? new AudioContextCtor();
     void toneContext.resume?.();
-    const now = toneContext.currentTime;
-    const oscillator = toneContext.createOscillator();
+    const duration = 0.09;
+    const frames = Math.max(1, Math.floor(toneContext.sampleRate * duration));
+    const buffer = toneContext.createBuffer(1, frames, toneContext.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < frames; i += 1) {
+      const envelope = Math.sin((i / frames) * Math.PI);
+      data[i] = (Math.random() * 2 - 1) * envelope * envelope;
+    }
+    const source = toneContext.createBufferSource();
+    const filter = toneContext.createBiquadFilter();
     const gain = toneContext.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = 540;
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.028, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-    oscillator.connect(gain);
+    source.buffer = buffer;
+    filter.type = 'bandpass';
+    filter.frequency.value = 1600;
+    filter.Q.value = 0.6;
+    gain.gain.value = 0.035;
+    source.connect(filter);
+    filter.connect(gain);
     gain.connect(toneContext.destination);
-    oscillator.start(now);
-    oscillator.stop(now + 0.13);
+    source.start();
   } catch {
     toneContext = null;
   }
