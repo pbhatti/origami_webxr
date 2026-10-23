@@ -58,8 +58,9 @@ export interface PaperMeshBuffers {
 const FRONT: Vec3 = [1, 1, 1];
 const BACK: Vec3 = [0.86, 0.83, 0.8];
 const CREASE: Vec3 = [0.72, 0.68, 0.64];
-const SHADOW_LIFT_M = 0.00032;
-const RIM_LIFT_M = 0.00038;
+const SHADOW_LIFT_M = 0.00016;
+/** An edge this close to a higher sheet is treated as covered by it. */
+const COVER_TOLERANCE_M = 0.00015;
 
 interface RawFace {
   indices: number[];
@@ -100,7 +101,7 @@ export function buildPaperMesh(snapshot: MeshSnapshot, shadows = PAPER_DEPTH.sha
   for (const face of faces) {
     pushFan(positions, normals, colors, face.front, face.frontDir, FRONT, false);
     pushFan(positions, normals, colors, face.back, face.frontDir, BACK, true);
-    pushWalls(positions, normals, colors, face, edgeColor);
+    pushWalls(positions, normals, colors, face, faces, edgeColor);
     pushLoop(layerLines, face.front);
   }
 
@@ -254,25 +255,168 @@ function pushContactShadows(
     }
     const higher = owners.reduce((best, face) => (face.layer > best.layer ? face : best), owners[0]!);
     const lower = owners.reduce((best, face) => (face.layer < best.layer ? face : best), owners[0]!);
+    // A crease shared by one sheet is an internal triangulation edge, not an overlap.
+    if (owners.length >= 2 && higher.layer - lower.layer < 0.05) {
+      continue;
+    }
     const a = pointFor(higher, edge.a);
     const b = pointFor(higher, edge.b);
     if (!a || !b || distance(a, b) < 0.002 || distance(a, b) > 0.45) {
       continue;
     }
-    if (higher.layer !== lower.layer) {
-      pushRim(positions, colors, higher, a, b, softness * 0.45, 1);
+    const outward = edgeOutward(a, b, higher.centroid, higher.frontDir);
+    if (!outward) {
       continue;
     }
-    if (owners.length !== 1) {
-      continue;
-    }
-    const receiver = receiverUnder(faces, higher, average([a, b]), stack, separation, thickness);
+    // Contact only where this flap actually lies on a lower sheet.
+    const into = addVec(average([a, b]), scaleVec(outward, -0.0016));
+    const receiver = receiverUnder(faces, higher, into, stack, separation, thickness);
     if (!receiver) {
       continue;
     }
-    pushRim(positions, colors, higher, a, b, Math.min(softness * 0.55, 0.004), 1);
-    pushReceiverStrip(positions, colors, higher, receiver, a, b, softness, stack);
+    // The visible shadow is the band just outside the flap, on paper nothing else covers.
+    const probe = Math.min(Math.max(softness * 0.35, 0.00045), 0.0016);
+    const slide = scaleVec(outward, probe);
+    const occluded = coveringFaces(faces, receiver, stack, separation, thickness);
+    const exposed = exposedSegments(a, b, occluded, stack, slide).filter(([start, end]) => {
+      const sample = addVec(average([start, end]), slide);
+      return polygonHolds(receiver, sample, stack, probe);
+    });
+    for (const [start, end] of exposed) {
+      pushReceiverStrip(positions, colors, higher, receiver, start, end, softness, stack);
+    }
   }
+}
+
+function coveringFaces(
+  faces: BuiltFace[],
+  face: BuiltFace,
+  stack: Vec3,
+  separation: number,
+  thickness: number,
+): BuiltFace[] {
+  return faces.filter((other) => {
+    if (other === face || other.layer <= face.layer + 0.05) {
+      return false;
+    }
+    if (Math.abs(dot(other.frontDir, face.frontDir)) < 0.82) {
+      return false;
+    }
+    const expected = (other.layer - face.layer) * separation;
+    return Math.abs(dot(sub(other.centroid, face.centroid), stack)) <= expected + thickness + 0.004;
+  });
+}
+
+function exposedSegments(
+  a: Vec3,
+  b: Vec3,
+  covers: BuiltFace[],
+  stack: Vec3,
+  slide: Vec3 = [0, 0, 0],
+): Array<[Vec3, Vec3]> {
+  if (covers.length === 0) {
+    return [[a, b]];
+  }
+  const { u, v } = planeBasis(stack);
+  const a2 = project(addVec(a, slide), a, u, v);
+  const b2 = project(addVec(b, slide), a, u, v);
+  const covered: Array<[number, number]> = [];
+  for (const cover of covers) {
+    const polygon = ensureCcw(cover.base.map((point) => project(point, a, u, v)));
+    covered.push(...segmentInsidePolygon(a2, b2, polygon));
+  }
+  const hidden = mergeIntervals(covered);
+  const parts: Array<[Vec3, Vec3]> = [];
+  let cursor = 0;
+  const emit = (from: number, to: number) => {
+    if (to - from < 0.015) {
+      return;
+    }
+    const start = lerpVec(a, b, from);
+    const end = lerpVec(a, b, to);
+    if (distance(start, end) >= 0.002) {
+      parts.push([start, end]);
+    }
+  };
+  for (const [start, end] of hidden) {
+    emit(cursor, start);
+    cursor = Math.max(cursor, end);
+  }
+  emit(cursor, 1);
+  return parts;
+}
+
+function segmentInsidePolygon(
+  a: [number, number],
+  b: [number, number],
+  polygon: Array<[number, number]>,
+): Array<[number, number]> {
+  const samples = [0, 1];
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    if (!start || !end) {
+      continue;
+    }
+    const t = segmentParam(a, b, start, end);
+    if (t !== null && t > 1e-4 && t < 1 - 1e-4) {
+      samples.push(t);
+    }
+  }
+  samples.sort((left, right) => left - right);
+  const spans: Array<[number, number]> = [];
+  for (let index = 0; index < samples.length - 1; index += 1) {
+    const from = samples[index] ?? 0;
+    const to = samples[index + 1] ?? from;
+    if (to - from < 1e-4) {
+      continue;
+    }
+    const midT = (from + to) / 2;
+    const mid: [number, number] = [a[0] + (b[0] - a[0]) * midT, a[1] + (b[1] - a[1]) * midT];
+    if (pointInPolygon(mid[0], mid[1], polygon) || distanceToPolygon(mid, polygon) <= COVER_TOLERANCE_M) {
+      spans.push([from, to]);
+    }
+  }
+  return mergeIntervals(spans);
+}
+
+function segmentParam(
+  a: [number, number],
+  b: [number, number],
+  c: [number, number],
+  d: [number, number],
+): number | null {
+  const rx = b[0] - a[0];
+  const ry = b[1] - a[1];
+  const sx = d[0] - c[0];
+  const sy = d[1] - c[1];
+  const denom = rx * sy - ry * sx;
+  if (Math.abs(denom) < 1e-12) {
+    return null;
+  }
+  const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / denom;
+  const u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / denom;
+  if (t < -1e-4 || t > 1 + 1e-4 || u < -1e-4 || u > 1 + 1e-4) {
+    return null;
+  }
+  return Math.min(Math.max(t, 0), 1);
+}
+
+function mergeIntervals(spans: Array<[number, number]>): Array<[number, number]> {
+  const sorted = spans
+    .map(([start, end]) => [Math.min(start, end), Math.max(start, end)] as [number, number])
+    .filter(([start, end]) => end - start > 1e-5)
+    .sort((left, right) => left[0] - right[0]);
+  const merged: Array<[number, number]> = [];
+  for (const span of sorted) {
+    const last = merged.at(-1);
+    if (!last || span[0] > last[1] + 1e-4) {
+      merged.push([span[0], span[1]]);
+    } else {
+      last[1] = Math.max(last[1], span[1]);
+    }
+  }
+  return merged;
 }
 
 function receiverUnder(
@@ -305,29 +449,6 @@ function receiverUnder(
   return best;
 }
 
-function pushRim(
-  positions: number[],
-  colors: number[],
-  face: BuiltFace,
-  a: Vec3,
-  b: Vec3,
-  width: number,
-  edgeAlpha: number,
-): void {
-  const outward = edgeOutward(a, b, face.centroid, face.frontDir);
-  if (!outward) {
-    return;
-  }
-  const inward = scaleVec(outward, -1);
-  const lift = offset([0, 0, 0], face.frontDir, RIM_LIFT_M);
-  const a0 = addVec(projectToPlane(a, face.front[0] ?? a, face.frontDir), lift);
-  const b0 = addVec(projectToPlane(b, face.front[0] ?? b, face.frontDir), lift);
-  const a1 = addVec(a0, scaleVec(inward, width));
-  const b1 = addVec(b0, scaleVec(inward, width));
-  pushAlphaTri(positions, colors, a0, b0, b1, edgeAlpha, edgeAlpha, 0);
-  pushAlphaTri(positions, colors, a0, b1, a1, edgeAlpha, 0, 0);
-}
-
 function pushReceiverStrip(
   positions: number[],
   colors: number[],
@@ -338,14 +459,15 @@ function pushReceiverStrip(
   softness: number,
   stack: Vec3,
 ): void {
-  const outward = edgeOutward(a, b, upper.centroid, stack);
+  const outward = edgeOutward(a, b, upper.centroid, stack) ?? edgeOutward(a, b, upper.centroid, upper.frontDir);
   const origin = lower.front[0];
   if (!outward || !origin) {
     return;
   }
-  const inward = scaleVec(outward, -0.0004);
-  const a0 = addVec(projectToPlane(a, origin, lower.frontDir), inward);
-  const b0 = addVec(projectToPlane(b, origin, lower.frontDir), inward);
+  // Start on the receiving surface at the overlap edge. The band falls outward
+  // onto paper the flap does not cover, so it never paints the flap's own front.
+  const a0 = projectToPlane(a, origin, lower.frontDir);
+  const b0 = projectToPlane(b, origin, lower.frontDir);
   const a1 = addVec(projectToPlane(a, origin, lower.frontDir), scaleVec(outward, softness));
   const b1 = addVec(projectToPlane(b, origin, lower.frontDir), scaleVec(outward, softness));
   const { u, v } = planeBasis(lower.frontDir);
@@ -445,14 +567,48 @@ function pushFan(
   }
 }
 
-function pushWalls(positions: number[], normals: number[], colors: number[], face: BuiltFace, color: Vec3): void {
+function sameSheetEdge(face: BuiltFace, a: number, b: number, faces: BuiltFace[]): boolean {
+  return faces.some((other) => {
+    if (other === face || Math.abs(other.layer - face.layer) > 0.05) {
+      return false;
+    }
+    if (Math.abs(dot(other.frontDir, face.frontDir)) < 0.82) {
+      return false;
+    }
+    const indices = other.indices;
+    for (let index = 0; index < indices.length; index += 1) {
+      const start = indices[index];
+      const end = indices[(index + 1) % indices.length];
+      if ((start === a && end === b) || (start === b && end === a)) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+function pushWalls(
+  positions: number[],
+  normals: number[],
+  colors: number[],
+  face: BuiltFace,
+  faces: BuiltFace[],
+  color: Vec3,
+): void {
   for (let i = 0; i < face.front.length; i += 1) {
     const next = (i + 1) % face.front.length;
     const frontA = face.front[i];
     const frontB = face.front[next];
     const backB = face.back[next];
     const backA = face.back[i];
-    if (!frontA || !frontB || !backA || !backB) {
+    const indexA = face.indices[i];
+    const indexB = face.indices[next];
+    if (!frontA || !frontB || !backA || !backB || indexA === undefined || indexB === undefined) {
+      continue;
+    }
+    // An edge shared by the same sheet is a triangulation seam. Its wall would
+    // read as a dark triangle line across paper that is actually continuous.
+    if (sameSheetEdge(face, indexA, indexB, faces)) {
       continue;
     }
     const outward = normalize(cross(sub(frontB, frontA), sub(backA, frontA))) ?? face.frontDir;
@@ -715,6 +871,10 @@ function sub(a: Vec3, b: Vec3): Vec3 {
 
 function addVec(a: Vec3, b: Vec3): Vec3 {
   return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+function lerpVec(a: Vec3, b: Vec3, t: number): Vec3 {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
 
 function scaleVec(a: Vec3, scale: number): Vec3 {

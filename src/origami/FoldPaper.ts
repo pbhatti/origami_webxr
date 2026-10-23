@@ -28,6 +28,9 @@ function paperMat(color: string): MeshStandardMaterial {
     metalness: 0,
     side: DoubleSide,
     vertexColors: true,
+    transparent: false,
+    depthTest: true,
+    depthWrite: true,
   });
 }
 
@@ -36,12 +39,10 @@ function contactShadowMat(): MeshBasicMaterial {
     color: new Color('#1a120c'),
     transparent: true,
     opacity: PAPER_DEPTH.contactShadowOpacity,
+    depthTest: true,
     depthWrite: false,
     side: DoubleSide,
     vertexColors: true,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
   });
 }
 
@@ -142,7 +143,7 @@ export class FoldPaper {
     this.shadowMesh.name = 'paper-contact-shadows';
     this.shadowMesh.castShadow = false;
     this.shadowMesh.receiveShadow = false;
-    this.shadowMesh.renderOrder = 3;
+    this.shadowMesh.renderOrder = 0;
     this.shadowMesh.frustumCulled = false;
     this.layerBounds = new LineSegments(
       new BufferGeometry(),

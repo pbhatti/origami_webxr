@@ -32,12 +32,10 @@ function contactShadows(): MeshBasicMaterial {
       color: new Color('#1a120c'),
       transparent: true,
       opacity: PAPER_DEPTH.contactShadowOpacity,
+      depthTest: true,
       depthWrite: false,
       side: DoubleSide,
       vertexColors: true,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
     });
   }
   return contactShadowMaterial;
@@ -70,6 +68,9 @@ function depthPaperMat(color: string): MeshStandardMaterial {
     metalness: 0,
     side: DoubleSide,
     vertexColors: true,
+    transparent: false,
+    depthTest: true,
+    depthWrite: true,
   });
   shared.set(key, material);
   return material;
@@ -129,7 +130,7 @@ function poly(color: string, layers: Tris[]): Group {
       const shadow = new Mesh(mesh.geometry, contactShadows());
       shadow.position.z = (index - 1) * 0.0012 + 0.00035;
       shadow.scale.set(1.035, 1.035, 1);
-      shadow.renderOrder = 2;
+      shadow.renderOrder = 0;
       shadow.name = `layer-shadow-${index}`;
       group.add(shadow);
     }
@@ -186,7 +187,7 @@ function addFramedPaper(group: Group, id: string, snapshot: MeshSnapshot, color:
   const shadow = new Mesh(framed.shadow, contactShadows());
   mesh.rotation.x = -0.18;
   shadow.rotation.x = -0.18;
-  shadow.renderOrder = 2;
+  shadow.renderOrder = 0;
   shadow.name = `${id}-contact-shadow`;
   group.add(mesh, shadow);
 }
@@ -224,7 +225,7 @@ function paperGroupFromSnapshot(snapshot: MeshSnapshot, color: string, name: str
   const mesh = new Mesh(paper, depthPaperMat(color));
   mesh.name = name;
   const shadow = new Mesh(shadowGeo, contactShadows());
-  shadow.renderOrder = 2;
+  shadow.renderOrder = 0;
   shadow.name = `${name}-shadow`;
   group.add(mesh, shadow);
   return group;
