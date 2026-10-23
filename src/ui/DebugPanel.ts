@@ -27,9 +27,9 @@ import { FONT_MONO, FONT_SANS, getUiOpacity, theme, themeMaterial } from '../the
 
 const _world = new Vector3();
 const PANEL_WIDTH = 0.28;
-const PANEL_HEIGHT = 1.193;
+const PANEL_HEIGHT = 1.277;
 const CANVAS_W = 768;
-const CANVAS_H = 3976;
+const CANVAS_H = 4256;
 
 export interface DebugPanelView {
   appState: AppState;
@@ -265,8 +265,14 @@ function draw(view: DebugPanelView): HTMLCanvasElement {
     line('span', metersText(view.fold?.playScale?.handDistanceM)),
     line('3d root', view.fold?.playScale?.root ?? '—'),
     line('paper n', view.fold?.playScale ? String(view.fold.playScale.layerCount) : '—'),
-    line('contact', `${PAPER_DEPTH.shadows ? 'on' : 'off'}  $`),
-    line('bounds', `${PAPER_DEPTH.showLayerBounds ? 'show' : 'hide'}  !`),
+    'Paper Depth',
+    line('thickness', `${(PAPER_DEPTH.thicknessM * 1000).toFixed(2)} mm  alt+↑↓`),
+    line('separation', `${(PAPER_DEPTH.layerSeparationM * 1000).toFixed(2)} mm  alt+←→`),
+    line('sh opacity', `${Math.round(PAPER_DEPTH.contactShadowOpacity * 100)}%  alt+shift+←→`),
+    line('softness', `${(PAPER_DEPTH.shadowSoftnessM * 1000).toFixed(1)} mm  alt+shift+↑↓`),
+    line('edge shade', `${Math.round(PAPER_DEPTH.foldEdgeShading * 100)}%  alt+e`),
+    line('layer bnd', `${PAPER_DEPTH.showLayerBounds ? 'show' : 'hide'}  !`),
+    line('sh meshes', `${PAPER_DEPTH.shadows && PAPER_DEPTH.showShadowMeshes ? 'show' : 'hide'}  $ / alt+s`),
     line('creases', `${PAPER_DEPTH.showCreaseAxes ? 'show' : 'hide'}  @`),
     line('pivot', `${PAPER_DEPTH.showPivot ? 'show' : 'hide'}  #`),
     line('2h xform', `${PAPER_DEPTH.twoHand ? 'on' : 'off'}  %`),

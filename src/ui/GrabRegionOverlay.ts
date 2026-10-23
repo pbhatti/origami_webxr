@@ -34,7 +34,7 @@ function meshFromUv(polygon: Vec2[], color: string, name: string): Mesh {
       side: DoubleSide,
     }),
   );
-  mesh.position.z = 0.0012;
+  mesh.position.z = 0.006;
   mesh.name = name;
   mesh.renderOrder = 3;
   return mesh;
@@ -46,6 +46,9 @@ export class GrabRegionOverlay {
   private hold: Mesh;
   private readonly extras = new Group();
   private pulse = 0;
+  private movingActive = false;
+  private holdActive = false;
+  private movingAllowed = false;
 
   constructor() {
     this.group.name = 'fold-fly-grab-regions';
@@ -70,22 +73,23 @@ export class GrabRegionOverlay {
       'hold-region',
     );
     this.extras.name = 'extra-moving-regions';
+    this.moving.visible = false;
+    this.hold.visible = false;
     this.group.add(this.hold, this.moving, this.extras);
   }
 
   setRegions(moving?: GrabRegion, hold?: GrabRegion, extraMoving: GrabRegion[] = []): void {
-    this.replace('moving', moving?.polygonUV ?? [
-      [0.5, 0],
-      [1, 0],
-      [1, 1],
-      [0.5, 1],
-    ], '#ff7a3d');
-    this.replace('hold', hold?.polygonUV ?? [
-      [0, 0],
-      [0.5, 0],
-      [0.5, 1],
-      [0, 1],
-    ], '#243b55');
+    this.movingActive = Boolean(moving);
+    this.holdActive = Boolean(hold);
+    this.movingAllowed = this.regionAllowed(moving);
+    if (moving) {
+      this.replace('moving', moving.polygonUV, '#ff7a3d');
+    }
+    this.moving.visible = this.movingActive && this.movingAllowed;
+    if (hold) {
+      this.replace('hold', hold.polygonUV, '#243b55');
+    }
+    this.hold.visible = this.holdActive;
     [...this.extras.children].forEach((child) => {
       this.extras.remove(child);
       if (child instanceof Mesh) {
@@ -127,7 +131,8 @@ export class GrabRegionOverlay {
         ? 0.38
         : 0.16 + this.pulse * 0.25;
     holdMat.opacity = snapshot.holdOwner ? 0.36 : snapshot.hoverHold ? 0.24 : 0.1;
-    this.hold.visible = Boolean(snapshot.holdOwner || snapshot.hoverHold || this.hold.geometry);
+    this.moving.visible = this.movingActive && this.movingAllowed;
+    this.hold.visible = this.holdActive;
     this.extras.children.forEach((child) => {
       const extra = child as Mesh;
       (extra.material as MeshBasicMaterial).opacity = snapshot.hoverMoving ? 0.32 : 0.16 + this.pulse * 0.2;
@@ -136,13 +141,27 @@ export class GrabRegionOverlay {
 
   setVisible(visible: boolean): void {
     this.group.visible = visible;
-    this.moving.visible = visible;
+    this.moving.visible = visible && this.movingActive && this.movingAllowed;
+    this.hold.visible = visible && this.holdActive;
   }
 
   reset(): void {
     this.pulse = 0;
     (this.moving.material as MeshBasicMaterial).opacity = 0.12;
     (this.hold.material as MeshBasicMaterial).opacity = 0.08;
+  }
+
+  private regionAllowed(region?: GrabRegion): boolean {
+    if (!region) {
+      return false;
+    }
+    if (region.id.includes('left')) {
+      return FOLD_GEOMETRY_INSPECTOR.leftFoldRegion;
+    }
+    if (region.id.includes('right')) {
+      return FOLD_GEOMETRY_INSPECTOR.rightFoldRegion;
+    }
+    return true;
   }
 
   private replace(kind: 'moving' | 'hold', polygon: Vec2[], color: string): void {

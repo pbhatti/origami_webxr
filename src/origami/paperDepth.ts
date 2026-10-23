@@ -1,21 +1,46 @@
 import type { MeshSnapshot, Vec3 } from './types.ts';
 
-/** Physical sheet thickness at the default paper size. Inside the 0.3–0.6 mm range. */
-export const PAPER_THICKNESS_M = 0.0005;
+/** Physical sheet thickness. Inside the 0.3–0.6 mm craft-paper range. */
+export const PAPER_THICKNESS_M = 0.0004;
 /**
- * Pitch between stacked fold layers. Larger than the sheet thickness so
- * overlapping flaps stay separated and the crease can still bridge them.
+ * Pitch between stacked fold layers. Larger than the sheet so overlapping
+ * flaps stay apart without reading as cardboard.
  */
-export const PAPER_LAYER_GAP_M = 0.00115;
+export const PAPER_LAYER_GAP_M = 0.0008;
 
-/** Debug switches for folded depth and completed-object manipulation. */
+/** Adjustable folded-paper depth. Debug panel writes these live. */
 export const PAPER_DEPTH = {
   shadows: true,
   showLayerBounds: false,
   showCreaseAxes: false,
   showPivot: false,
   twoHand: true,
+  showShadowMeshes: true,
+  thicknessM: PAPER_THICKNESS_M,
+  layerSeparationM: PAPER_LAYER_GAP_M,
+  contactShadowOpacity: 0.25,
+  shadowSoftnessM: 0.003,
+  foldEdgeShading: 0.35,
+  roughness: 0.92,
 };
+
+export const PAPER_DEPTH_DEFAULTS = { ...PAPER_DEPTH };
+
+export function resetPaperDepth(): void {
+  Object.assign(PAPER_DEPTH, PAPER_DEPTH_DEFAULTS);
+}
+
+/** Rebuild key for everything that changes the paper or shadow geometry. */
+export function paperDepthToken(): string {
+  const depth = PAPER_DEPTH;
+  return [
+    depth.shadows ? 1 : 0,
+    depth.thicknessM.toFixed(6),
+    depth.layerSeparationM.toFixed(6),
+    depth.shadowSoftnessM.toFixed(6),
+    depth.foldEdgeShading.toFixed(3),
+  ].join('|');
+}
 
 export interface PaperMeshBuffers {
   positions: Float32Array;
@@ -23,66 +48,83 @@ export interface PaperMeshBuffers {
   colors: Float32Array;
   layerLines: Float32Array;
   creaseLines: Float32Array;
+  shadowPositions: Float32Array;
+  shadowColors: Float32Array;
   faceCount: number;
   thicknessM: number;
+  separationM: number;
 }
 
 const FRONT: Vec3 = [1, 1, 1];
-const FRONT_SHADOW: Vec3 = [0.74, 0.7, 0.66];
-const BACK: Vec3 = [0.84, 0.8, 0.76];
-const EDGE: Vec3 = [0.7, 0.66, 0.62];
-const CREASE: Vec3 = [0.62, 0.58, 0.54];
+const BACK: Vec3 = [0.86, 0.83, 0.8];
+const CREASE: Vec3 = [0.72, 0.68, 0.64];
+const SHADOW_LIFT_M = 0.00032;
+const RIM_LIFT_M = 0.00038;
 
-interface BuiltFace {
-  layer: number;
-  normal: Vec3;
+interface RawFace {
   indices: number[];
   points: Vec3[];
+  normal: Vec3;
+  layer: number;
   centroid: Vec3;
+}
+
+interface BuiltFace extends RawFace {
+  frontDir: Vec3;
+  base: Vec3[];
   front: Vec3[];
   back: Vec3[];
 }
 
 /**
- * Extrude every folded polygon into a thin shell. Higher layers sit above
- * lower ones, shared crease edges are bridged, and covered faces are darkened
- * in the vertex colors so the stack reads without a shadow map.
+ * Extrude every polygon into a thin shell and stack higher layers along one
+ * consistent direction. Face windings flip after a valley fold; stacking along
+ * each face normal pushes those flaps behind the sheet, which is why completed
+ * origami was reading as one flat color.
  */
 export function buildPaperMesh(snapshot: MeshSnapshot, shadows = PAPER_DEPTH.shadows): PaperMeshBuffers {
+  const thickness = PAPER_DEPTH.thicknessM;
+  const separation = Math.max(PAPER_DEPTH.layerSeparationM, thickness + 0.00015);
   const positions: number[] = [];
   const normals: number[] = [];
   const colors: number[] = [];
   const layerLines: number[] = [];
   const creaseLines: number[] = [];
-  const faces = buildFaces(snapshot);
-  const covered = markCovered(faces);
+  const shadowPositions: number[] = [];
+  const shadowColors: number[] = [];
+  const raw = rawFaces(snapshot);
+  const stack = stackNormal(raw);
+  const faces = raw.map((face) => buildShell(face, stack, thickness, separation));
+  const edgeColor = shadeColor(PAPER_DEPTH.foldEdgeShading);
 
-  for (let index = 0; index < faces.length; index += 1) {
-    const face = faces[index];
-    if (!face) {
-      continue;
-    }
-    const frontColor = shadows && covered[index] ? FRONT_SHADOW : FRONT;
-    pushFan(positions, normals, colors, face.front, face.normal, frontColor, false);
-    pushFan(positions, normals, colors, face.back, face.normal, BACK, true);
-    pushWalls(positions, normals, colors, face);
+  for (const face of faces) {
+    pushFan(positions, normals, colors, face.front, face.frontDir, FRONT, false);
+    pushFan(positions, normals, colors, face.back, face.frontDir, BACK, true);
+    pushWalls(positions, normals, colors, face, edgeColor);
     pushLoop(layerLines, face.front);
   }
 
-  pushCreases(positions, normals, colors, creaseLines, faces, snapshot);
+  pushCreases(positions, normals, colors, creaseLines, faces, stack, separation);
+  if (shadows) {
+    pushContactShadows(shadowPositions, shadowColors, faces, stack, separation, thickness);
+  }
+
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     colors: new Float32Array(colors),
     layerLines: new Float32Array(layerLines),
     creaseLines: new Float32Array(creaseLines),
+    shadowPositions: new Float32Array(shadowPositions),
+    shadowColors: new Float32Array(shadowColors),
     faceCount: faces.length,
-    thicknessM: PAPER_THICKNESS_M,
+    thicknessM: thickness,
+    separationM: separation,
   };
 }
 
-function buildFaces(snapshot: MeshSnapshot): BuiltFace[] {
-  const faces: BuiltFace[] = [];
+function rawFaces(snapshot: MeshSnapshot): RawFace[] {
+  const faces: RawFace[] = [];
   for (const face of snapshot.faces) {
     const indexed = face.vertices.flatMap((index) => {
       const point = snapshot.vertices[index];
@@ -96,41 +138,46 @@ function buildFaces(snapshot: MeshSnapshot): BuiltFace[] {
     if (!normal) {
       continue;
     }
-    const backDistance = face.layer * PAPER_LAYER_GAP_M;
-    const frontDistance = backDistance + PAPER_THICKNESS_M;
     faces.push({
-      layer: face.layer,
-      normal,
       indices: indexed.map((entry) => entry.index),
       points,
+      normal,
+      layer: face.layer,
       centroid: average(points),
-      front: points.map((point) => offset(point, normal, frontDistance)),
-      back: points.map((point) => offset(point, normal, backDistance)),
     });
   }
   return faces;
 }
 
-function markCovered(faces: BuiltFace[]): boolean[] {
-  return faces.map((face, index) => {
-    const { u, v } = planeBasis(face.normal);
-    const origin = face.points[0] ?? face.centroid;
-    const sample = project(face.centroid, origin, u, v);
-    return faces.some((other, otherIndex) => {
-      if (otherIndex === index || other.layer <= face.layer) {
-        return false;
-      }
-      if (Math.abs(dot(face.normal, other.normal)) < 0.65) {
-        return false;
-      }
-      const gap = (other.layer - face.layer) * PAPER_LAYER_GAP_M + PAPER_THICKNESS_M * 2 + 0.004;
-      if (planeDistance(other.centroid, face.centroid, face.normal) > gap) {
-        return false;
-      }
-      const polygon = other.points.map((point) => project(point, origin, u, v));
-      return pointInPolygon(sample[0], sample[1], polygon);
-    });
-  });
+function stackNormal(faces: RawFace[]): Vec3 {
+  const minLayer = faces.reduce((min, face) => Math.min(min, face.layer), Number.POSITIVE_INFINITY);
+  let acc: Vec3 = [0, 0, 0];
+  for (const face of faces) {
+    if (face.layer !== minLayer) {
+      continue;
+    }
+    acc = addVec(acc, face.normal[2] >= 0 ? face.normal : scaleVec(face.normal, -1));
+  }
+  const normal = normalize(acc) ?? [0, 0, 1];
+  return normal[2] < 0 ? scaleVec(normal, -1) : normal;
+}
+
+function buildShell(face: RawFace, stack: Vec3, thickness: number, separation: number): BuiltFace {
+  const frontDir = dot(face.normal, stack) >= 0 ? face.normal : scaleVec(face.normal, -1);
+  const lift = face.layer * separation;
+  const base = face.points.map((point) => offset(point, stack, lift));
+  return {
+    ...face,
+    frontDir,
+    base,
+    front: base.map((point) => offset(point, frontDir, thickness)),
+    back: base,
+  };
+}
+
+function shadeColor(amount: number): Vec3 {
+  const shade = Math.min(Math.max(amount, 0), 1);
+  return [1 - 0.42 * shade, 1 - 0.46 * shade, 1 - 0.5 * shade];
 }
 
 function pushCreases(
@@ -139,66 +186,235 @@ function pushCreases(
   colors: number[],
   creaseLines: number[],
   faces: BuiltFace[],
-  snapshot: MeshSnapshot,
+  stack: Vec3,
+  separation: number,
 ): void {
-  const shared = new Map<string, { a: number; b: number; owners: number[] }>();
-  faces.forEach((face, faceIndex) => {
-    const indices = face.indices;
-    for (let i = 0; i < indices.length; i += 1) {
-      const a = indices[i];
-      const b = indices[(i + 1) % indices.length];
-      if (a === undefined || b === undefined || a === b) {
-        continue;
-      }
-      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-      const entry = shared.get(key) ?? { a: Math.min(a, b), b: Math.max(a, b), owners: [] };
-      entry.owners.push(faceIndex);
-      shared.set(key, entry);
-    }
-  });
-
-  for (const edge of shared.values()) {
+  for (const edge of sharedEdges(faces)) {
     if (edge.owners.length < 2) {
       continue;
     }
-    const start = snapshot.vertices[edge.a];
-    const end = snapshot.vertices[edge.b];
+    const start = vertexOn(faces, edge.owners[0] ?? -1, edge.a);
+    const end = vertexOn(faces, edge.owners[0] ?? -1, edge.b);
     if (start && end) {
       creaseLines.push(start[0], start[1], start[2], end[0], end[1], end[2]);
     }
-    const first = edge.owners[0];
-    const second = edge.owners[1];
-    if (first === undefined || second === undefined) {
-      continue;
-    }
-    const faceA = faces[first];
-    const faceB = faces[second];
+    const faceA = faces[edge.owners[0] ?? -1];
+    const faceB = faces[edge.owners[1] ?? -1];
     if (!faceA || !faceB || faceA.layer === faceB.layer) {
       continue;
     }
-    const hingeA = hingePoints(faceA, snapshot.vertices[edge.a], snapshot.vertices[edge.b]);
-    const hingeB = hingePoints(faceB, snapshot.vertices[edge.a], snapshot.vertices[edge.b]);
+    const hingeA = hingePoints(faceA, edge.a, edge.b, stack, separation);
+    const hingeB = hingePoints(faceB, edge.a, edge.b, stack, separation);
     if (!hingeA || !hingeB) {
       continue;
     }
     if (distance(hingeA[0], hingeB[0]) < 0.00005 && distance(hingeA[1], hingeB[1]) < 0.00005) {
       continue;
     }
-    const bridge = normalize(addVec(faceA.normal, faceB.normal)) ?? faceA.normal;
+    const bridge = normalize(addVec(faceA.frontDir, faceB.frontDir)) ?? faceA.frontDir;
     pushQuad(positions, normals, colors, hingeA[0], hingeA[1], hingeB[1], hingeB[0], bridge, CREASE);
   }
 }
 
-function hingePoints(face: BuiltFace, start: Vec3 | undefined, end: Vec3 | undefined): [Vec3, Vec3] | null {
+function hingePoints(
+  face: BuiltFace,
+  startIndex: number,
+  endIndex: number,
+  stack: Vec3,
+  separation: number,
+): [Vec3, Vec3] | null {
+  const start = face.points[face.indices.indexOf(startIndex)];
+  const end = face.points[face.indices.indexOf(endIndex)];
   if (!start || !end) {
     return null;
   }
-  const backStart = face.back.find((point) => near(point, offset(start, face.normal, face.layer * PAPER_LAYER_GAP_M)));
-  const backEnd = face.back.find((point) => near(point, offset(end, face.normal, face.layer * PAPER_LAYER_GAP_M)));
+  const lift = face.layer * separation;
+  const backStart = face.back.find((point) => near(point, offset(start, stack, lift)));
+  const backEnd = face.back.find((point) => near(point, offset(end, stack, lift)));
   if (!backStart || !backEnd) {
     return null;
   }
   return [backStart, backEnd];
+}
+
+function pushContactShadows(
+  positions: number[],
+  colors: number[],
+  faces: BuiltFace[],
+  stack: Vec3,
+  separation: number,
+  thickness: number,
+): void {
+  const softness = Math.min(Math.max(PAPER_DEPTH.shadowSoftnessM, 0.0004), 0.012);
+  const edges = sharedEdges(faces);
+  for (const edge of edges) {
+    const owners = edge.owners.map((index) => faces[index]).filter((face): face is BuiltFace => Boolean(face));
+    if (owners.length === 0) {
+      continue;
+    }
+    const higher = owners.reduce((best, face) => (face.layer > best.layer ? face : best), owners[0]!);
+    const lower = owners.reduce((best, face) => (face.layer < best.layer ? face : best), owners[0]!);
+    const a = pointFor(higher, edge.a);
+    const b = pointFor(higher, edge.b);
+    if (!a || !b || distance(a, b) < 0.002 || distance(a, b) > 0.45) {
+      continue;
+    }
+    if (higher.layer !== lower.layer) {
+      pushRim(positions, colors, higher, a, b, softness * 0.45, 1);
+      continue;
+    }
+    if (owners.length !== 1) {
+      continue;
+    }
+    const receiver = receiverUnder(faces, higher, average([a, b]), stack, separation, thickness);
+    if (!receiver) {
+      continue;
+    }
+    pushRim(positions, colors, higher, a, b, Math.min(softness * 0.55, 0.004), 1);
+    pushReceiverStrip(positions, colors, higher, receiver, a, b, softness, stack);
+  }
+}
+
+function receiverUnder(
+  faces: BuiltFace[],
+  upper: BuiltFace,
+  point: Vec3,
+  stack: Vec3,
+  separation: number,
+  thickness: number,
+): BuiltFace | null {
+  let best: BuiltFace | null = null;
+  for (const face of faces) {
+    if (face === upper || face.layer >= upper.layer) {
+      continue;
+    }
+    if (Math.abs(dot(face.frontDir, upper.frontDir)) < 0.82) {
+      continue;
+    }
+    const expected = (upper.layer - face.layer) * separation;
+    if (Math.abs(dot(sub(upper.centroid, face.centroid), stack)) > expected + thickness + 0.004) {
+      continue;
+    }
+    if (!polygonHolds(face, point, stack, 0.001)) {
+      continue;
+    }
+    if (!best || face.layer > best.layer) {
+      best = face;
+    }
+  }
+  return best;
+}
+
+function pushRim(
+  positions: number[],
+  colors: number[],
+  face: BuiltFace,
+  a: Vec3,
+  b: Vec3,
+  width: number,
+  edgeAlpha: number,
+): void {
+  const outward = edgeOutward(a, b, face.centroid, face.frontDir);
+  if (!outward) {
+    return;
+  }
+  const inward = scaleVec(outward, -1);
+  const lift = offset([0, 0, 0], face.frontDir, RIM_LIFT_M);
+  const a0 = addVec(projectToPlane(a, face.front[0] ?? a, face.frontDir), lift);
+  const b0 = addVec(projectToPlane(b, face.front[0] ?? b, face.frontDir), lift);
+  const a1 = addVec(a0, scaleVec(inward, width));
+  const b1 = addVec(b0, scaleVec(inward, width));
+  pushAlphaTri(positions, colors, a0, b0, b1, edgeAlpha, edgeAlpha, 0);
+  pushAlphaTri(positions, colors, a0, b1, a1, edgeAlpha, 0, 0);
+}
+
+function pushReceiverStrip(
+  positions: number[],
+  colors: number[],
+  upper: BuiltFace,
+  lower: BuiltFace,
+  a: Vec3,
+  b: Vec3,
+  softness: number,
+  stack: Vec3,
+): void {
+  const outward = edgeOutward(a, b, upper.centroid, stack);
+  const origin = lower.front[0];
+  if (!outward || !origin) {
+    return;
+  }
+  const inward = scaleVec(outward, -0.0004);
+  const a0 = addVec(projectToPlane(a, origin, lower.frontDir), inward);
+  const b0 = addVec(projectToPlane(b, origin, lower.frontDir), inward);
+  const a1 = addVec(projectToPlane(a, origin, lower.frontDir), scaleVec(outward, softness));
+  const b1 = addVec(projectToPlane(b, origin, lower.frontDir), scaleVec(outward, softness));
+  const { u, v } = planeBasis(lower.frontDir);
+  const quad = [a0, b0, b1, a1].map((point) => project(point, origin, u, v));
+  const clip = lower.front.map((point) => project(point, origin, u, v));
+  const clipped = clipPolygon(ensureCcw(quad), ensureCcw(clip));
+  if (clipped.length < 3) {
+    return;
+  }
+  const edgeA = project(a0, origin, u, v);
+  const edgeB = project(b0, origin, u, v);
+  const lifted = clipped.map((point) => offset(unproject(point, origin, u, v), lower.frontDir, SHADOW_LIFT_M));
+  const alphas = clipped.map((point) => falloff(point, edgeA, edgeB, softness));
+  pushFanAlpha(positions, colors, lifted, alphas);
+}
+
+function sharedEdges(faces: BuiltFace[]): Array<{ a: number; b: number; owners: number[] }> {
+  const shared = new Map<string, { a: number; b: number; owners: number[] }>();
+  faces.forEach((face, faceIndex) => {
+    for (let i = 0; i < face.indices.length; i += 1) {
+      const a = face.indices[i];
+      const b = face.indices[(i + 1) % face.indices.length];
+      if (a === undefined || b === undefined || a === b) {
+        continue;
+      }
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      const entry = shared.get(key) ?? { a: Math.min(a, b), b: Math.max(a, b), owners: [] };
+      if (!entry.owners.includes(faceIndex)) {
+        entry.owners.push(faceIndex);
+      }
+      shared.set(key, entry);
+    }
+  });
+  return [...shared.values()];
+}
+
+function pointFor(face: BuiltFace, index: number): Vec3 | null {
+  const slot = face.indices.indexOf(index);
+  return slot >= 0 ? (face.base[slot] ?? null) : null;
+}
+
+function vertexOn(faces: BuiltFace[], faceIndex: number, vertexIndex: number): Vec3 | null {
+  const face = faces[faceIndex];
+  return face ? pointFor(face, vertexIndex) : null;
+}
+
+function polygonHolds(face: BuiltFace, point: Vec3, stack: Vec3, tolerance: number): boolean {
+  const origin = face.base[0] ?? face.centroid;
+  const { u, v } = planeBasis(stack);
+  const sample = project(point, origin, u, v);
+  const polygon = face.base.map((corner) => project(corner, origin, u, v));
+  if (pointInPolygon(sample[0], sample[1], polygon)) {
+    return true;
+  }
+  return distanceToPolygon(sample, polygon) <= tolerance;
+}
+
+function edgeOutward(a: Vec3, b: Vec3, awayFrom: Vec3, normal: Vec3): Vec3 | null {
+  const side = normalize(cross(normal, sub(b, a)));
+  if (!side) {
+    return null;
+  }
+  const mid = average([a, b]);
+  return dot(side, sub(awayFrom, mid)) > 0 ? scaleVec(side, -1) : side;
+}
+
+function falloff(point: [number, number], a: [number, number], b: [number, number], softness: number): number {
+  const span = Math.max(softness, 0.0001);
+  return Math.min(Math.max(1 - distanceToSegment(point, a, b) / span, 0), 1);
 }
 
 function pushFan(
@@ -214,7 +430,7 @@ function pushFan(
   if (!origin) {
     return;
   }
-  const wound = reverse ? [-normal[0], -normal[1], -normal[2]] as Vec3 : normal;
+  const wound = reverse ? ([-normal[0], -normal[1], -normal[2]] as Vec3) : normal;
   for (let i = 1; i < ring.length - 1; i += 1) {
     const b = ring[i];
     const c = ring[i + 1];
@@ -229,7 +445,7 @@ function pushFan(
   }
 }
 
-function pushWalls(positions: number[], normals: number[], colors: number[], face: BuiltFace): void {
+function pushWalls(positions: number[], normals: number[], colors: number[], face: BuiltFace, color: Vec3): void {
   for (let i = 0; i < face.front.length; i += 1) {
     const next = (i + 1) % face.front.length;
     const frontA = face.front[i];
@@ -239,12 +455,12 @@ function pushWalls(positions: number[], normals: number[], colors: number[], fac
     if (!frontA || !frontB || !backA || !backB) {
       continue;
     }
-    const outward = normalize(cross(sub(frontB, frontA), sub(backA, frontA))) ?? face.normal;
+    const outward = normalize(cross(sub(frontB, frontA), sub(backA, frontA))) ?? face.frontDir;
     const towardCenter = dot(outward, sub(face.centroid, frontA));
     if (towardCenter > 0) {
-      pushQuad(positions, normals, colors, frontA, backA, backB, frontB, scaleVec(outward, -1), EDGE);
+      pushQuad(positions, normals, colors, frontA, backA, backB, frontB, scaleVec(outward, -1), color);
     } else {
-      pushQuad(positions, normals, colors, frontA, frontB, backB, backA, outward, EDGE);
+      pushQuad(positions, normals, colors, frontA, frontB, backB, backA, outward, color);
     }
   }
 }
@@ -277,6 +493,36 @@ function pushTri(
   positions.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
   normals.push(normal[0], normal[1], normal[2], normal[0], normal[1], normal[2], normal[0], normal[1], normal[2]);
   colors.push(color[0], color[1], color[2], color[0], color[1], color[2], color[0], color[1], color[2]);
+}
+
+function pushAlphaTri(
+  positions: number[],
+  colors: number[],
+  a: Vec3,
+  b: Vec3,
+  c: Vec3,
+  alphaA: number,
+  alphaB: number,
+  alphaC: number,
+): void {
+  positions.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  colors.push(1, 1, 1, alphaA, 1, 1, 1, alphaB, 1, 1, 1, alphaC);
+}
+
+function pushFanAlpha(positions: number[], colors: number[], ring: Vec3[], alphas: number[]): void {
+  const origin = ring[0];
+  const originAlpha = alphas[0] ?? 0;
+  if (!origin) {
+    return;
+  }
+  for (let i = 1; i < ring.length - 1; i += 1) {
+    const b = ring[i];
+    const c = ring[i + 1];
+    if (!b || !c) {
+      continue;
+    }
+    pushAlphaTri(positions, colors, origin, b, c, originAlpha, alphas[i] ?? 0, alphas[i + 1] ?? 0);
+  }
 }
 
 function pushLoop(target: number[], ring: Vec3[]): void {
@@ -319,6 +565,10 @@ function project(point: Vec3, origin: Vec3, u: Vec3, v: Vec3): [number, number] 
   return [dot(delta, u), dot(delta, v)];
 }
 
+function unproject(point: [number, number], origin: Vec3, u: Vec3, v: Vec3): Vec3 {
+  return addVec(origin, addVec(scaleVec(u, point[0]), scaleVec(v, point[1])));
+}
+
 function pointInPolygon(x: number, y: number, polygon: Array<[number, number]>): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
@@ -336,6 +586,107 @@ function pointInPolygon(x: number, y: number, polygon: Array<[number, number]>):
   return inside;
 }
 
+function distanceToPolygon(point: [number, number], polygon: Array<[number, number]>): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < polygon.length; i += 1) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    if (!a || !b) {
+      continue;
+    }
+    best = Math.min(best, distanceToSegment(point, a, b));
+  }
+  return best;
+}
+
+function distanceToSegment(point: [number, number], a: [number, number], b: [number, number]): number {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const lengthSq = abx * abx + aby * aby;
+  if (lengthSq < 1e-12) {
+    return Math.hypot(point[0] - a[0], point[1] - a[1]);
+  }
+  const t = Math.min(Math.max(((point[0] - a[0]) * abx + (point[1] - a[1]) * aby) / lengthSq, 0), 1);
+  return Math.hypot(point[0] - (a[0] + abx * t), point[1] - (a[1] + aby * t));
+}
+
+function signedArea(polygon: Array<[number, number]>): number {
+  let area = 0;
+  for (let i = 0; i < polygon.length; i += 1) {
+    const current = polygon[i];
+    const next = polygon[(i + 1) % polygon.length];
+    if (!current || !next) {
+      continue;
+    }
+    area += current[0] * next[1] - next[0] * current[1];
+  }
+  return area * 0.5;
+}
+
+function ensureCcw(polygon: Array<[number, number]>): Array<[number, number]> {
+  return signedArea(polygon) < 0 ? [...polygon].reverse() : polygon;
+}
+
+function clipPolygon(
+  subject: Array<[number, number]>,
+  clip: Array<[number, number]>,
+): Array<[number, number]> {
+  let output = subject;
+  for (let i = 0; i < clip.length; i += 1) {
+    const a = clip[i];
+    const b = clip[(i + 1) % clip.length];
+    if (!a || !b || output.length === 0) {
+      return [];
+    }
+    const input = output;
+    output = [];
+    for (let j = 0; j < input.length; j += 1) {
+      const current = input[j];
+      const next = input[(j + 1) % input.length];
+      if (!current || !next) {
+        continue;
+      }
+      const currentIn = insideEdge(current, a, b);
+      const nextIn = insideEdge(next, a, b);
+      if (currentIn && nextIn) {
+        output.push(next);
+      } else if (currentIn && !nextIn) {
+        const hit = segmentHit(current, next, a, b);
+        if (hit) {
+          output.push(hit);
+        }
+      } else if (!currentIn && nextIn) {
+        const hit = segmentHit(current, next, a, b);
+        if (hit) {
+          output.push(hit);
+        }
+        output.push(next);
+      }
+    }
+  }
+  return output;
+}
+
+function insideEdge(point: [number, number], a: [number, number], b: [number, number]): boolean {
+  return (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0]) >= -1e-9;
+}
+
+function segmentHit(
+  p: [number, number],
+  q: [number, number],
+  a: [number, number],
+  b: [number, number],
+): [number, number] | null {
+  const r: [number, number] = [q[0] - p[0], q[1] - p[1]];
+  const s: [number, number] = [b[0] - a[0], b[1] - a[1]];
+  const denom = r[0] * s[1] - r[1] * s[0];
+  if (Math.abs(denom) < 1e-12) {
+    return null;
+  }
+  const t = ((a[0] - p[0]) * s[1] - (a[1] - p[1]) * s[0]) / denom;
+  return [p[0] + r[0] * t, p[1] + r[1] * t];
+}
+
 function average(points: Vec3[]): Vec3 {
   const sum = points.reduce<Vec3>((acc, point) => [acc[0] + point[0], acc[1] + point[1], acc[2] + point[2]], [0, 0, 0]);
   const count = Math.max(points.length, 1);
@@ -346,8 +697,8 @@ function offset(point: Vec3, normal: Vec3, distanceM: number): Vec3 {
   return [point[0] + normal[0] * distanceM, point[1] + normal[1] * distanceM, point[2] + normal[2] * distanceM];
 }
 
-function planeDistance(point: Vec3, origin: Vec3, normal: Vec3): number {
-  return Math.abs(dot(sub(point, origin), normal));
+function projectToPlane(point: Vec3, origin: Vec3, normal: Vec3): Vec3 {
+  return sub(point, scaleVec(normal, dot(sub(point, origin), normal)));
 }
 
 function distance(a: Vec3, b: Vec3): number {
@@ -355,7 +706,7 @@ function distance(a: Vec3, b: Vec3): number {
 }
 
 function near(a: Vec3, b: Vec3): boolean {
-  return distance(a, b) < 0.00002;
+  return distance(a, b) < 0.00005;
 }
 
 function sub(a: Vec3, b: Vec3): Vec3 {

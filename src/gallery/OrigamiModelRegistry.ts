@@ -6,11 +6,13 @@ import {
   DoubleSide,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   SphereGeometry,
   Vector3,
 } from 'three';
 import { FOLD_PAPER_COLOR } from '../origami/FoldPaper.ts';
+import { PAPER_DEPTH, buildPaperMesh } from '../origami/paperDepth.ts';
 import { BAT_PAPER_COLOR, BAT_RECIPE } from '../origami/recipes/bat.recipe.ts';
 import { OWL_BEAK_COLOR, OWL_EYE_COLOR, OWL_PAPER_COLOR, OWL_PUPIL_COLOR } from '../origami/recipes/owl.recipe.ts';
 import { FOX_PAPER_COLOR, FOX_RECIPE } from '../origami/recipes/fox.recipe.ts';
@@ -22,6 +24,24 @@ type Tris = number[];
 
 const shared = new Map<string, MeshStandardMaterial>();
 const sharedGeo = new Map<string, BufferGeometry>();
+let contactShadowMaterial: MeshBasicMaterial | null = null;
+
+function contactShadows(): MeshBasicMaterial {
+  if (!contactShadowMaterial) {
+    contactShadowMaterial = new MeshBasicMaterial({
+      color: new Color('#1a120c'),
+      transparent: true,
+      opacity: PAPER_DEPTH.contactShadowOpacity,
+      depthWrite: false,
+      side: DoubleSide,
+      vertexColors: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+  }
+  return contactShadowMaterial;
+}
 
 function paperMat(color: string): MeshStandardMaterial {
   const existing = shared.get(color);
@@ -30,29 +50,29 @@ function paperMat(color: string): MeshStandardMaterial {
   }
   const material = new MeshStandardMaterial({
     color: new Color(color),
-    roughness: 0.9,
-    metalness: 0.03,
+    roughness: 0.92,
+    metalness: 0,
     side: DoubleSide,
   });
   shared.set(color, material);
   return material;
 }
 
-function triangulate(indices: number[]): number[] {
-  if (indices.length === 3) {
-    return [...indices];
+function depthPaperMat(color: string): MeshStandardMaterial {
+  const key = `depth:${color}`;
+  const existing = shared.get(key);
+  if (existing) {
+    return existing;
   }
-  const tris: number[] = [];
-  for (let i = 1; i < indices.length - 1; i += 1) {
-    const a = indices[0];
-    const b = indices[i];
-    const c = indices[i + 1];
-    if (a === undefined || b === undefined || c === undefined) {
-      continue;
-    }
-    tris.push(a, b, c);
-  }
-  return tris;
+  const material = new MeshStandardMaterial({
+    color: new Color(color),
+    roughness: PAPER_DEPTH.roughness,
+    metalness: 0,
+    side: DoubleSide,
+    vertexColors: true,
+  });
+  shared.set(key, material);
+  return material;
 }
 
 function geometryFromTris(tris: Tris): BufferGeometry {
@@ -70,35 +90,6 @@ function meshFromTris(id: string, tris: Tris, color: string): Mesh {
     sharedGeo.set(key, geometry);
   }
   return new Mesh(geometry, paperMat(color));
-}
-
-function snapshotGeometry(snapshot: MeshSnapshot): BufferGeometry {
-  const positions: number[] = [];
-  for (const face of snapshot.faces) {
-    const tris = triangulate(face.vertices);
-    const lift = face.layer * 0.00065;
-    for (let i = 0; i < tris.length; i += 3) {
-      const a = snapshot.vertices[tris[i] ?? 0] ?? [0, 0, 0];
-      const b = snapshot.vertices[tris[i + 1] ?? 0] ?? [0, 0, 0];
-      const c = snapshot.vertices[tris[i + 2] ?? 0] ?? [0, 0, 0];
-      positions.push(a[0], a[1], a[2] + lift, b[0], b[1], b[2] + lift, c[0], c[1], c[2] + lift);
-    }
-  }
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  const box = geometry.boundingBox;
-  if (box) {
-    const center = new Vector3();
-    box.getCenter(center);
-    geometry.translate(-center.x, -center.y, -center.z);
-    const size = new Vector3();
-    box.getSize(size);
-    const span = Math.max(size.x, size.y, size.z, 0.001);
-    geometry.scale(0.078 / span, 0.078 / span, 0.078 / span);
-  }
-  return geometry;
 }
 
 function fit(group: Group, span = 0.078): Group {
@@ -134,6 +125,14 @@ function poly(color: string, layers: Tris[]): Group {
     const mesh = meshFromTris(`layer-${index}-${tris.join(',')}`, tris, color);
     mesh.position.z = index * 0.0012;
     group.add(mesh);
+    if (index > 0) {
+      const shadow = new Mesh(mesh.geometry, contactShadows());
+      shadow.position.z = (index - 1) * 0.0012 + 0.00035;
+      shadow.scale.set(1.035, 1.035, 1);
+      shadow.renderOrder = 2;
+      shadow.name = `layer-shadow-${index}`;
+      group.add(shadow);
+    }
   });
   return fit(group);
 }
@@ -146,20 +145,59 @@ function triangle(ax: number, ay: number, bx: number, by: number, cx: number, cy
   return [ax, ay, z, bx, by, z, cx, cy, z];
 }
 
+function framedPaper(id: string, snapshot: MeshSnapshot): { paper: BufferGeometry; shadow: BufferGeometry } {
+  let paper = sharedGeo.get(`${id}-paper`);
+  let shadow = sharedGeo.get(`${id}-shadow`);
+  if (paper && shadow) {
+    return { paper, shadow };
+  }
+  const built = buildPaperMesh(snapshot, true);
+  paper = new BufferGeometry();
+  paper.setAttribute('position', new BufferAttribute(built.positions, 3));
+  paper.setAttribute('normal', new BufferAttribute(built.normals, 3));
+  paper.setAttribute('color', new BufferAttribute(built.colors, 3));
+  shadow = new BufferGeometry();
+  const shadowPositions = built.shadowPositions.length >= 9 ? built.shadowPositions : new Float32Array(9);
+  const shadowColors = built.shadowColors.length >= 12 ? built.shadowColors : new Float32Array(12);
+  shadow.setAttribute('position', new BufferAttribute(shadowPositions, 3));
+  shadow.setAttribute('color', new BufferAttribute(shadowColors, 4));
+  paper.computeBoundingBox();
+  const box = paper.boundingBox;
+  if (box) {
+    const center = new Vector3();
+    box.getCenter(center);
+    paper.translate(-center.x, -center.y, -center.z);
+    shadow.translate(-center.x, -center.y, -center.z);
+    const size = new Vector3();
+    box.getSize(size);
+    const span = Math.max(size.x, size.y, size.z, 0.001);
+    const scale = 0.078 / span;
+    paper.scale(scale, scale, scale);
+    shadow.scale(scale, scale, scale);
+  }
+  sharedGeo.set(`${id}-paper`, paper);
+  sharedGeo.set(`${id}-shadow`, shadow);
+  return { paper, shadow };
+}
+
+function addFramedPaper(group: Group, id: string, snapshot: MeshSnapshot, color: string): void {
+  const framed = framedPaper(id, snapshot);
+  const mesh = new Mesh(framed.paper, depthPaperMat(color));
+  const shadow = new Mesh(framed.shadow, contactShadows());
+  mesh.rotation.x = -0.18;
+  shadow.rotation.x = -0.18;
+  shadow.renderOrder = 2;
+  shadow.name = `${id}-contact-shadow`;
+  group.add(mesh, shadow);
+}
+
 function snapshotModel(id: string, snapshot: MeshSnapshot | undefined, fallbackColor: string): Group {
   const group = new Group();
   if (!snapshot) {
     group.add(meshFromTris(`${id}-fallback`, triangle(-0.05, -0.02, 0.05, -0.02, 0, 0.05), fallbackColor));
     return fit(group);
   }
-  let geometry = sharedGeo.get(`${id}-snapshot`);
-  if (!geometry) {
-    geometry = snapshotGeometry(snapshot);
-    sharedGeo.set(`${id}-snapshot`, geometry);
-  }
-  const mesh = new Mesh(geometry, paperMat(fallbackColor));
-  mesh.rotation.x = -0.18;
-  group.add(mesh);
+  addFramedPaper(group, id, snapshot, fallbackColor);
   return group;
 }
 
@@ -171,6 +209,27 @@ function foxModel(): Group {
   return snapshotModel('fox', FOX_RECIPE.snapshots.fox, FOX_PAPER_COLOR);
 }
 
+function paperGroupFromSnapshot(snapshot: MeshSnapshot, color: string, name: string): Group {
+  const group = new Group();
+  const built = buildPaperMesh(snapshot, true);
+  const paper = new BufferGeometry();
+  paper.setAttribute('position', new BufferAttribute(built.positions, 3));
+  paper.setAttribute('normal', new BufferAttribute(built.normals, 3));
+  paper.setAttribute('color', new BufferAttribute(built.colors, 3));
+  const shadowGeo = new BufferGeometry();
+  const shadowPositions = built.shadowPositions.length >= 9 ? built.shadowPositions : new Float32Array(9);
+  const shadowColors = built.shadowColors.length >= 12 ? built.shadowColors : new Float32Array(12);
+  shadowGeo.setAttribute('position', new BufferAttribute(shadowPositions, 3));
+  shadowGeo.setAttribute('color', new BufferAttribute(shadowColors, 4));
+  const mesh = new Mesh(paper, depthPaperMat(color));
+  mesh.name = name;
+  const shadow = new Mesh(shadowGeo, contactShadows());
+  shadow.renderOrder = 2;
+  shadow.name = `${name}-shadow`;
+  group.add(mesh, shadow);
+  return group;
+}
+
 function batModel(): Group {
   const snapshot = BAT_RECIPE.snapshots.faced ?? BAT_RECIPE.snapshots.eared;
   const root = new Group();
@@ -180,30 +239,25 @@ function batModel(): Group {
   left.userData.batWing = 'left';
   right.userData.batWing = 'right';
   if (snapshot) {
-    const positions = { body: [] as number[], left: [] as number[], right: [] as number[] };
+    const buckets: Record<'body' | 'left' | 'right', MeshSnapshot['faces']> = { body: [], left: [], right: [] };
     for (const face of snapshot.faces) {
-      const pts = face.vertices.map((index) => snapshot.vertices[index]).filter(Boolean) as Array<[number, number, number]>;
+      const pts = face.vertices.map((index) => snapshot.vertices[index]).filter((point) => point != null);
       if (pts.length < 3) {
         continue;
       }
       const cx = pts.reduce((sum, point) => sum + point[0], 0) / pts.length;
       const bucket = cx < -0.028 ? 'left' : cx > 0.028 ? 'right' : 'body';
-      const origin = pts[0]!;
-      for (let i = 1; i < pts.length - 1; i += 1) {
-        const b = pts[i]!;
-        const c = pts[i + 1]!;
-        positions[bucket].push(origin[0], origin[1], origin[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-      }
+      buckets[bucket].push(face);
     }
-    const add = (parent: Group, tris: number[], id: string) => {
-      if (tris.length === 0) {
+    const add = (parent: Group, faces: MeshSnapshot['faces'], id: string) => {
+      if (faces.length === 0) {
         return;
       }
-      parent.add(meshFromTris(id, tris, BAT_PAPER_COLOR));
+      parent.add(paperGroupFromSnapshot({ ...snapshot, faces }, BAT_PAPER_COLOR, id));
     };
-    add(body, positions.body, 'bat-body');
-    add(left, positions.left, 'bat-left');
-    add(right, positions.right, 'bat-right');
+    add(body, buckets.body, 'bat-body');
+    add(left, buckets.left, 'bat-left');
+    add(right, buckets.right, 'bat-right');
   }
   root.add(body, left, right);
   root.userData.flutterWings = true;

@@ -1,7 +1,7 @@
 export const FOLD_GEOMETRY_INSPECTOR = {
-  frontLayer: true,
-  backLayer: true,
-  foldGroup: true,
+  frontLayer: false,
+  backLayer: false,
+  foldGroup: false,
   hingeAxis: true,
   layerCount: true,
   layerOwnership: true,

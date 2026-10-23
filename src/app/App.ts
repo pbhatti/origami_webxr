@@ -170,13 +170,15 @@ export class App {
     try {
       const report = await this.session.probeCapabilities();
       const world = await this.session.createWorld(this.roots.scene);
-      world.scene.add(new AmbientLight(0xfff4ea, 0.55));
-      world.scene.add(new HemisphereLight(0xfff8f2, 0xd9cfc4, 0.38));
-      const key = new DirectionalLight(0xfff1e4, 1.2);
-      key.position.set(0.85, 2.5, 0.55);
+      world.scene.add(new AmbientLight(0xfff4ea, 0.32));
+      world.scene.add(new HemisphereLight(0xfff8f2, 0xd9cfc4, 0.2));
+      const key = new DirectionalLight(0xfff1e4, 0.95);
+      key.position.set(0.55, 2.4, 0.9);
+      key.castShadow = false;
       world.scene.add(key);
-      const fill = new DirectionalLight(0xd5e2f0, 0.42);
-      fill.position.set(-1.4, 1.1, -0.6);
+      const fill = new DirectionalLight(0xd5e2f0, 0.28);
+      fill.position.set(-1.15, 1.35, 0.45);
+      fill.castShadow = false;
       world.scene.add(fill);
 
       world.renderer.domElement.setAttribute('aria-label', 'Fold & Play paper studio');
@@ -960,6 +962,9 @@ export class App {
   }
 
   private handleFoldDebugKeys(event: KeyboardEvent): void {
+    if (event.altKey && this.adjustPaperDepth(event)) {
+      return;
+    }
     const key = event.key;
     if ((key === 'm' || key === 'M') && event.shiftKey) {
       MOVE_HANDLE_INSPECTOR.collider = !MOVE_HANDLE_INSPECTOR.collider;
@@ -1167,7 +1172,7 @@ export class App {
     if (key === '%') {
       PAPER_DEPTH.twoHand = !PAPER_DEPTH.twoHand;
     }
-    if (key === 'l' || key === 'L') {
+    if ((key === 'l' || key === 'L') && !event.altKey) {
       const world = this.session.getWorld();
       if (!world) {
         return;
@@ -1178,6 +1183,38 @@ export class App {
         this.gallery.recenterToCamera(world.camera);
       }
     }
+  }
+
+  private adjustPaperDepth(event: KeyboardEvent): boolean {
+    const key = event.key;
+    const shift = event.shiftKey;
+    if (key === 'ArrowUp' || key === 'ArrowDown') {
+      const dir = key === 'ArrowUp' ? 1 : -1;
+      if (shift) {
+        PAPER_DEPTH.shadowSoftnessM = nudgeConfig(PAPER_DEPTH.shadowSoftnessM, dir * 0.0005, 0.0005, 0.012);
+      } else {
+        PAPER_DEPTH.thicknessM = nudgeConfig(PAPER_DEPTH.thicknessM, dir * 0.00005, 0.0002, 0.0012);
+      }
+      return true;
+    }
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+      const dir = key === 'ArrowRight' ? 1 : -1;
+      if (shift) {
+        PAPER_DEPTH.contactShadowOpacity = nudgeConfig(PAPER_DEPTH.contactShadowOpacity, dir * 0.05, 0, 0.8);
+      } else {
+        PAPER_DEPTH.layerSeparationM = nudgeConfig(PAPER_DEPTH.layerSeparationM, dir * 0.0001, 0.0003, 0.0035);
+      }
+      return true;
+    }
+    if (key === 's' || key === 'S') {
+      PAPER_DEPTH.showShadowMeshes = !PAPER_DEPTH.showShadowMeshes;
+      return true;
+    }
+    if (key === 'e' || key === 'E') {
+      PAPER_DEPTH.foldEdgeShading = nudgeConfig(PAPER_DEPTH.foldEdgeShading, shift ? -0.05 : 0.05, 0, 1);
+      return true;
+    }
+    return false;
   }
 
   private refreshSessionValidation(): string {

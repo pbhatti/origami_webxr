@@ -144,7 +144,7 @@ export class CreaseDebugOverlay {
     this.replaceOverlay(
       'stationary',
       debug.snapshot,
-      new Set(debug.stationaryFaceIds),
+      new Set(FOLD_GEOMETRY_INSPECTOR.foldGroup ? debug.stationaryFaceIds : []),
       '#94a3b8',
       GUIDE_LIFT_M,
     );

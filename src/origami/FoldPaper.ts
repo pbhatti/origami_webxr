@@ -8,14 +8,15 @@ import {
   LineBasicMaterial,
   LineSegments,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
 } from 'three';
 import { FOX_SHAPE_INSPECTOR } from './foxFinalShape.ts';
 import { clamp, lerp3 } from '../utils/math.ts';
 import { rotateAroundHinge } from './CreaseSolver.ts';
 import { copy3 } from './creaseMath.ts';
-import { deformByHinge, usesAxisAngleFold } from './MeshSplitter.ts';
-import { PAPER_DEPTH, buildPaperMesh } from './paperDepth.ts';
+import { deformByHinge } from './MeshSplitter.ts';
+import { PAPER_DEPTH, buildPaperMesh, paperDepthToken } from './paperDepth.ts';
 import { interpolatesMesh, stepActionType, type FoldStep, type MeshSnapshot, type Vec3 } from './types.ts';
 
 export const FOLD_PAPER_COLOR = '#e24a1a';
@@ -23,10 +24,24 @@ export const FOLD_PAPER_COLOR = '#e24a1a';
 function paperMat(color: string): MeshStandardMaterial {
   return new MeshStandardMaterial({
     color: new Color(color),
-    roughness: 0.96,
+    roughness: PAPER_DEPTH.roughness,
     metalness: 0,
     side: DoubleSide,
     vertexColors: true,
+  });
+}
+
+function contactShadowMat(): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    color: new Color('#1a120c'),
+    transparent: true,
+    opacity: PAPER_DEPTH.contactShadowOpacity,
+    depthWrite: false,
+    side: DoubleSide,
+    vertexColors: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
 }
 
@@ -69,23 +84,31 @@ export function deformFoldSnapshot(
   }
   const t = clamp(angleDeg / Math.max(step.targetAngleDeg, 1e-6), 0, 1);
   if (interpolatesMesh(step) && fromSnap.vertices.length === toSnap.vertices.length) {
-    return { ...fromSnap, vertices: interpolate(fromSnap, toSnap, t) };
+    return { ...fromSnap, vertices: interpolate(fromSnap, toSnap, t), faces: blendLayers(fromSnap, toSnap, t) };
   }
   if ((step.coupledHinges?.length ?? 0) > 0) {
-    return { ...fromSnap, vertices: coupledHingeDeform(step, fromSnap, t) };
-  }
-  if (usesAxisAngleFold(step)) {
-    const signed = step.direction === 'valley' ? -angleDeg : angleDeg;
-    const hint = step.targetLandmarks[0]?.sourceVertexId
-      ? fromSnap.named?.[step.targetLandmarks[0].sourceVertexId]
-      : undefined;
-    return deformByHinge(fromSnap, step.hinge, signed, hint).snapshot;
+    return { ...fromSnap, vertices: coupledHingeDeform(step, fromSnap, t), faces: blendLayers(fromSnap, toSnap, t) };
   }
   const signed = step.direction === 'valley' ? -angleDeg : angleDeg;
   const hint = step.targetLandmarks[0]?.sourceVertexId
     ? fromSnap.named?.[step.targetLandmarks[0].sourceVertexId]
     : undefined;
-  return deformByHinge(fromSnap, step.hinge, signed, hint).snapshot;
+  const result = deformByHinge(fromSnap, step.hinge, signed, hint);
+  const faces = result.snapshot.faces.map((face) =>
+    result.movingFaceIds.has(face.id) ? { ...face, layer: face.layer + t } : face,
+  );
+  return { ...result.snapshot, faces };
+}
+
+function blendLayers(fromSnap: MeshSnapshot, toSnap: MeshSnapshot, t: number) {
+  const target = new Map(toSnap.faces.map((face) => [face.id, face.layer]));
+  return fromSnap.faces.map((face) => {
+    const next = target.get(face.id);
+    if (next == null) {
+      return face;
+    }
+    return { ...face, layer: face.layer + (next - face.layer) * t };
+  });
 }
 
 export function deformFoldMesh(
@@ -100,9 +123,11 @@ export function deformFoldMesh(
 export class FoldPaper {
   readonly group = new Group();
   private readonly mesh: Mesh;
+  private readonly shadowMesh: Mesh;
   private readonly layerBounds: LineSegments;
   private readonly creaseAxes: LineSegments;
   private geometry = new BufferGeometry();
+  private shadowGeometry = new BufferGeometry();
   private builtKey = '';
   private faceCount = 0;
   private lastSnapshot: MeshSnapshot | null = null;
@@ -113,6 +138,12 @@ export class FoldPaper {
     this.mesh.name = 'paper-faces';
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
+    this.shadowMesh = new Mesh(this.shadowGeometry, contactShadowMat());
+    this.shadowMesh.name = 'paper-contact-shadows';
+    this.shadowMesh.castShadow = false;
+    this.shadowMesh.receiveShadow = false;
+    this.shadowMesh.renderOrder = 3;
+    this.shadowMesh.frustumCulled = false;
     this.layerBounds = new LineSegments(
       new BufferGeometry(),
       new LineBasicMaterial({ color: '#8a5a3a', transparent: true, opacity: 0.85 }),
@@ -127,7 +158,7 @@ export class FoldPaper {
     this.creaseAxes.name = 'paper-crease-axes';
     this.creaseAxes.visible = false;
     this.creaseAxes.frustumCulled = false;
-    this.group.add(this.mesh, this.layerBounds, this.creaseAxes);
+    this.group.add(this.mesh, this.shadowMesh, this.layerBounds, this.creaseAxes);
   }
 
   get material(): MeshStandardMaterial {
@@ -155,7 +186,12 @@ export class FoldPaper {
   syncDepthDebug(): void {
     this.layerBounds.visible = PAPER_DEPTH.showLayerBounds;
     this.creaseAxes.visible = PAPER_DEPTH.showCreaseAxes;
-    if (this.lastSnapshot && (PAPER_DEPTH.shadows ? '1' : '0') !== this.shadowToken()) {
+    this.shadowMesh.visible = PAPER_DEPTH.shadows && PAPER_DEPTH.showShadowMeshes;
+    this.material.roughness = PAPER_DEPTH.roughness;
+    const shadowMaterial = this.shadowMesh.material as MeshBasicMaterial;
+    shadowMaterial.opacity = PAPER_DEPTH.contactShadowOpacity;
+    if (this.lastSnapshot && paperDepthToken() !== this.shadowToken()) {
+      this.builtKey = '';
       this.setSnapshot(this.lastSnapshot);
     }
   }
@@ -193,12 +229,20 @@ export class FoldPaper {
     this.geometry.setAttribute('normal', new BufferAttribute(built.normals, 3));
     this.geometry.setAttribute('color', new BufferAttribute(built.colors, 3));
     this.mesh.geometry = this.geometry;
+    this.shadowGeometry.dispose();
+    this.shadowGeometry = new BufferGeometry();
+    const shadowPositions = built.shadowPositions.length >= 9 ? built.shadowPositions : new Float32Array(9);
+    const shadowColors = built.shadowColors.length >= 12 ? built.shadowColors : new Float32Array(12);
+    this.shadowGeometry.setAttribute('position', new BufferAttribute(shadowPositions, 3));
+    this.shadowGeometry.setAttribute('color', new BufferAttribute(shadowColors, 4));
+    this.shadowMesh.geometry = this.shadowGeometry;
+    this.shadowMesh.visible = PAPER_DEPTH.shadows && PAPER_DEPTH.showShadowMeshes && built.shadowPositions.length >= 9;
     replaceLines(this.layerBounds, built.layerLines);
     replaceLines(this.creaseAxes, built.creaseLines);
   }
 
   private shadowToken(): string {
-    return PAPER_DEPTH.shadows ? '1' : '0';
+    return paperDepthToken();
   }
 }
 

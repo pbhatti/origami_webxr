@@ -1,11 +1,12 @@
 import {
+  BufferAttribute,
+  BufferGeometry,
   ConeGeometry,
-  DoubleSide,
   Group,
+  LineBasicMaterial,
+  LineLoop,
   Mesh,
   MeshBasicMaterial,
-  Shape,
-  ShapeGeometry,
   Vector3,
 } from 'three';
 import { stepCreaseLine } from '../origami/creaseMath.ts';
@@ -49,7 +50,7 @@ export class FoldGuides {
   private readonly arrowHeads = new Group();
   private readonly history = new Group();
   private readonly extras = new Group();
-  private ghost: Mesh;
+  private ghost: LineLoop;
   private lanes: GuideLane[] = [];
   private steps: FoldStep[] = [];
   private toSnapshot: MeshSnapshot | null = null;
@@ -81,6 +82,7 @@ export class FoldGuides {
     this.rebuildExtras(this.steps);
     this.group.remove(this.ghost);
     this.ghost.geometry.dispose();
+    (this.ghost.material as LineBasicMaterial).dispose();
     this.ghost = this.makeGhost(this.toSnapshot);
     this.group.add(this.ghost);
   }
@@ -286,29 +288,25 @@ export class FoldGuides {
     });
   }
 
-  private makeGhost(snapshot: MeshSnapshot | null): Mesh {
-    const shape = new Shape();
+  private makeGhost(snapshot: MeshSnapshot | null): LineLoop {
     const pts = snapshot?.outline ?? snapshot?.vertices.slice(0, 4) ?? [
-      [-PAPER_SIZE_M / 4, -PAPER_SIZE_M / 2],
-      [PAPER_SIZE_M / 4, -PAPER_SIZE_M / 2],
-      [PAPER_SIZE_M / 4, PAPER_SIZE_M / 2],
-      [-PAPER_SIZE_M / 4, PAPER_SIZE_M / 2],
+      [-PAPER_SIZE_M / 4, -PAPER_SIZE_M / 2, 0],
+      [PAPER_SIZE_M / 4, -PAPER_SIZE_M / 2, 0],
+      [PAPER_SIZE_M / 4, PAPER_SIZE_M / 2, 0],
+      [-PAPER_SIZE_M / 4, PAPER_SIZE_M / 2, 0],
     ];
-    const first = pts[0];
-    if (first) {
-      shape.moveTo(first[0], first[1]);
-      pts.slice(1).forEach((p) => shape.lineTo(p[0], p[1]));
-      shape.closePath();
+    const positions: number[] = [];
+    for (const point of pts) {
+      positions.push(point[0], point[1], (point[2] ?? 0) + 0.004);
     }
-    return new Mesh(
-      new ShapeGeometry(shape),
-      new MeshBasicMaterial({
-        color: '#ffe7c2',
-        transparent: true,
-        opacity: 0.18,
-        depthWrite: false,
-        side: DoubleSide,
-      }),
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions.length >= 6 ? positions : [0, 0, 0.004, 0, 0.01, 0.004]), 3));
+    const loop = new LineLoop(
+      geometry,
+      new LineBasicMaterial({ color: '#8a5a3a', transparent: true, opacity: 0.45, depthWrite: false }),
     );
+    loop.name = 'fold-target-outline';
+    loop.renderOrder = 4;
+    return loop;
   }
 }
