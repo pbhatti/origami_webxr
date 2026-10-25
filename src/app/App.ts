@@ -196,6 +196,7 @@ export class App {
           turtlePinch: this.stage.turtlePinch,
           dinosaurPinch: this.stage.dinosaurPinch,
           ladybugPinch: this.stage.ladybugPinch,
+          penguinPinch: this.stage.penguinPinch,
           mover: this.stage.mover,
           indicators: this.indicators,
           debugPanel: this.debugPanel,
@@ -877,6 +878,8 @@ export class App {
         this.stage.beginDinosaurLife();
       } else if (this.stage.activeAnimal === 'ladybug') {
         this.stage.beginLadybugLife();
+      } else if (this.stage.activeAnimal === 'penguin') {
+        this.stage.beginPenguinLife();
       } else {
         this.stage.cutter.begin();
       }
@@ -898,6 +901,10 @@ export class App {
       this.enterSnapFromFold(true);
     }
     if (!engine.isBusy() && this.stage.consumeLadybugCommit()) {
+      engine.assistToTarget();
+      this.enterSnapFromFold(true);
+    }
+    if (!engine.isBusy() && this.stage.consumePenguinCommit()) {
       engine.assistToTarget();
       this.enterSnapFromFold(true);
     }
@@ -1129,6 +1136,11 @@ export class App {
         }
       } else if (this.stage.activeAnimal === 'ladybug') {
         this.stage.prepareLadybugStep(stage);
+        if (this.machine.state !== 'INSTRUCTION') {
+          this.machine.force('INSTRUCTION');
+        }
+      } else if (this.stage.activeAnimal === 'penguin') {
+        this.stage.preparePenguinStep(stage);
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
         }

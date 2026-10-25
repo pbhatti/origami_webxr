@@ -18,6 +18,7 @@ import { FOX_PAPER_COLOR } from '../../src/origami/recipes/fox.recipe.ts';
 import { OWL_PAPER_COLOR } from '../../src/origami/recipes/owl.recipe.ts';
 import { DINOSAUR_PAPER_COLOR, DINOSAUR_RECIPE } from '../../src/origami/recipes/dinosaur.recipe.ts';
 import { LADYBUG_RECIPE } from '../../src/origami/recipes/ladybug.recipe.ts';
+import { PENGUIN_RECIPE } from '../../src/origami/recipes/penguin.recipe.ts';
 import { TURTLE_PAPER_COLOR, TURTLE_RECIPE } from '../../src/origami/recipes/turtle.recipe.ts';
 import type { MeshSnapshot, Vec3 } from '../../src/origami/types.ts';
 
@@ -458,6 +459,7 @@ describe('folded paper depth', () => {
       ['turtle', TURTLE_RECIPE.snapshots.turtle, TURTLE_RECIPE.finalSilhouette],
       ['dinosaur', DINOSAUR_RECIPE.snapshots.dinosaur, DINOSAUR_RECIPE.finalSilhouette],
       ['ladybug', LADYBUG_RECIPE.snapshots.ladybug, LADYBUG_RECIPE.finalSilhouette],
+      ['penguin', PENGUIN_RECIPE.snapshots.penguin, PENGUIN_RECIPE.finalSilhouette],
       ['bat', BAT_RECIPE.snapshots.faced, BAT_RECIPE.finalSilhouette],
     ];
     for (const [name, snapshot, silhouette] of finished) {

@@ -50,6 +50,7 @@ export const COPY = {
     turtle: 'Your little turtle is ready to play!',
     dinosaur: 'Your little dinosaur is ready to play!',
     ladybug: 'Your ladybug is ready to play!',
+    penguin: 'Your little penguin is ready to play!',
     again: 'Fold Again',
     explore: 'Explore More',
   },
@@ -60,7 +61,7 @@ export const PRODUCT_TAGLINE = COPY.product.tagline;
 export const PRODUCT_SENTENCE = COPY.product.description;
 
 export const HELP_COPY =
-  'After Enter AR, pinch a gallery card. Whale, Fox, Bat, Owl, Turtle, Dinosaur, and Ladybug launch guided folds. Other creations show Coming Soon. Explore returns to the gallery without losing fold progress. Pinch the highlight to fold. Pinch Move to reposition the sheet. Debug + A assists. Debug + G toggles the gallery.';
+  'After Enter AR, pinch a gallery card. Whale, Fox, Bat, Owl, Turtle, Dinosaur, Ladybug, and Penguin launch guided folds. Other creations show Coming Soon. Explore returns to the gallery without losing fold progress. Pinch the highlight to fold. Pinch Move to reposition the sheet. Debug + A assists. Debug + G toggles the gallery.';
 
 export function completionBodyFor(animalId: string): string {
   if (animalId === 'bat') {
@@ -77,6 +78,9 @@ export function completionBodyFor(animalId: string): string {
   }
   if (animalId === 'ladybug') {
     return COPY.completion.ladybug;
+  }
+  if (animalId === 'penguin') {
+    return COPY.completion.penguin;
   }
   return COPY.completion.body;
 }

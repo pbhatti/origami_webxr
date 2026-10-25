@@ -269,6 +269,9 @@ export function classifyMovingFaces(
     if (hinge.minMovingLayer != null && face.layer < hinge.minMovingLayer) {
       continue;
     }
+    if (hinge.maxMovingLayer != null && face.layer > hinge.maxMovingLayer) {
+      continue;
+    }
     if (hinge.reachM != null && distanceToSegment(face.centroid, hinge.p0, hinge.p1) > hinge.reachM) {
       continue;
     }
@@ -378,7 +381,7 @@ export function applyHingeSnapshot(
 }
 
 export function usesAxisAngleFold(step: FoldStep): boolean {
-  if (stepActionType(step) === 'crease-press') {
+  if (stepActionType(step) === 'crease-press' || step.meshStrategy === 'turn') {
     return false;
   }
   return !interpolatesMesh(step);

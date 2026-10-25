@@ -77,6 +77,9 @@ export function deformFoldSnapshot(
   if (stepActionType(step) === 'crease-press') {
     return fromSnap;
   }
+  if (step.meshStrategy === 'turn') {
+    return turnSnapshot(fromSnap, angleDeg);
+  }
   const t = clamp(angleDeg / Math.max(step.targetAngleDeg, 1e-6), 0, 1);
   if (step.meshStrategy === 'roll' && (step.rollSegments?.length ?? 0) > 0) {
     return deformRollSnapshot(fromSnap, step.rollSegments ?? [], t, step.rollDirection ?? 'close');
@@ -96,6 +99,26 @@ export function deformFoldSnapshot(
     result.movingFaceIds.has(face.id) ? { ...face, layer: face.layer + t } : face,
   );
   return { ...result.snapshot, faces };
+}
+
+/** Rotate the folded sheet around its vertical axis so the reverse side faces the viewer. */
+export function turnSnapshot(snapshot: MeshSnapshot, angleDeg: number): MeshSnapshot {
+  const theta = (Math.PI * angleDeg) / 180;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  const mapPoint = (point: Vec3): Vec3 => [
+    point[0] * cos + point[2] * sin,
+    point[1],
+    -point[0] * sin + point[2] * cos,
+  ];
+  return {
+    ...snapshot,
+    vertices: snapshot.vertices.map(mapPoint),
+    named: snapshot.named
+      ? Object.fromEntries(Object.entries(snapshot.named).map(([key, point]) => [key, mapPoint(point)]))
+      : snapshot.named,
+    outline: snapshot.outline?.map(mapPoint),
+  };
 }
 
 function blendLayers(fromSnap: MeshSnapshot, toSnap: MeshSnapshot, t: number) {

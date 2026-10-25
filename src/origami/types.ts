@@ -10,7 +10,8 @@ export type MeshStrategy =
   | 'unfold'
   | 'flap-fold'
   | 'crease-press'
-  | 'roll';
+  | 'roll'
+  | 'turn';
 
 export interface FaceDefinition {
   id: string;
@@ -39,6 +40,11 @@ export interface HingeDefinition {
    * tip fold from taking the rest of the half-plane.
    */
   reachM?: number;
+  /**
+   * When set, faces above this layer stay put. Pairs with `minMovingLayer`
+   * so a nested tip can move without taking a newer flap along.
+   */
+  maxMovingLayer?: number;
 }
 
 export interface CoupledHinge extends HingeDefinition {

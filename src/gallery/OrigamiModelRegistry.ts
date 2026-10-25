@@ -47,6 +47,15 @@ import {
   LADYBUG_SEAM,
   LADYBUG_SPOTS,
 } from '../origami/recipes/ladybug.recipe.ts';
+import {
+  PENGUIN_EYE_COLOR,
+  PENGUIN_EYE_HIGHLIGHT,
+  PENGUIN_EYE_L,
+  PENGUIN_EYE_R,
+  PENGUIN_FEATURE_Z,
+  PENGUIN_PAPER_COLOR,
+  PENGUIN_RECIPE,
+} from '../origami/recipes/penguin.recipe.ts';
 import { WHALE_RECIPE } from '../origami/recipes/whale.recipe.ts';
 import type { MeshSnapshot } from '../origami/types.ts';
 import { ANIMALS, type AnimalId } from './animals.ts';
@@ -403,6 +412,28 @@ function frameDecor(snapshot: MeshSnapshot, decor: Group): void {
   decor.add(pivot);
 }
 
+function penguinModel(): Group {
+  const snapshot = PENGUIN_RECIPE.snapshots.penguin;
+  const group = snapshotModel('penguin', snapshot, PENGUIN_PAPER_COLOR);
+  if (!snapshot) {
+    return group;
+  }
+  const decor = new Group();
+  decor.name = 'penguin-preview-eyes';
+  const pupil = paperMat(PENGUIN_EYE_COLOR);
+  const highlight = paperMat(PENGUIN_EYE_HIGHLIGHT);
+  for (const at of [PENGUIN_EYE_L, PENGUIN_EYE_R]) {
+    const eye = new Mesh(new CircleGeometry(0.0065, 18), pupil);
+    const glint = new Mesh(new CircleGeometry(0.0022, 12), highlight);
+    eye.position.set(at[0], at[1], PENGUIN_FEATURE_Z);
+    glint.position.set(at[0] + 0.002, at[1] + 0.002, PENGUIN_FEATURE_Z + 0.001);
+    decor.add(eye, glint);
+  }
+  frameDecor(snapshot, decor);
+  group.add(decor);
+  return group;
+}
+
 function ladybugModel(): Group {
   const snapshot = LADYBUG_RECIPE.snapshots.ladybug;
   const group = snapshotModel('ladybug', snapshot, LADYBUG_PAPER_COLOR);
@@ -493,6 +524,7 @@ const BUILDERS: Record<AnimalId, (color: string) => Group> = {
   turtle: () => turtleModel(),
   dinosaur: () => dinosaurModel(),
   ladybug: () => ladybugModel(),
+  penguin: () => penguinModel(),
   rabbit: (color) =>
     poly(color, [
       triangle(-0.03, -0.02, 0.03, -0.02, 0, 0.03),

@@ -12,10 +12,11 @@ import { DINOSAUR_PAPER_COLOR } from '../../src/origami/recipes/dinosaur.recipe.
 import { TURTLE_PAPER_COLOR } from '../../src/origami/recipes/turtle.recipe.ts';
 import { FOX_PAPER_COLOR } from '../../src/origami/recipes/fox.recipe.ts';
 import { LADYBUG_PAPER_COLOR } from '../../src/origami/recipes/ladybug.recipe.ts';
+import { PENGUIN_PAPER_COLOR } from '../../src/origami/recipes/penguin.recipe.ts';
 
 describe('origami animals gallery', () => {
   it('lists creations with Whale, Fox, and Bat as the playable set', () => {
-    expect(ANIMALS).toHaveLength(21);
+    expect(ANIMALS).toHaveLength(22);
     expect(GALLERY_COLUMNS).toBe(4);
     expect(ANIMALS.map((animal) => animal.name)).toEqual([
       'Rabbit',
@@ -39,6 +40,7 @@ describe('origami animals gallery', () => {
       'Cat (Sitting)',
       'Dog (Standing)',
       'Ladybug',
+      'Penguin',
     ]);
     const firstRow = ANIMALS.filter((animal) => animal.row === 0)
       .sort((a, b) => a.column - b.column)
@@ -68,7 +70,7 @@ describe('origami animals gallery', () => {
   });
 
   it('makes whale, fox, and bat playable from the gallery', () => {
-    expect(playableAnimals().map((animal) => animal.id)).toEqual(['whale', 'fox', 'bat', 'owl', 'turtle', 'dinosaur', 'ladybug']);
+    expect(playableAnimals().map((animal) => animal.id)).toEqual(['whale', 'fox', 'bat', 'owl', 'turtle', 'dinosaur', 'ladybug', 'penguin']);
     expect(ANIMALS.find((animal) => animal.id === 'whale')?.paperColor).toBe(FOLD_PAPER_COLOR);
     expect(ANIMALS.find((animal) => animal.id === 'fox')?.paperColor).toBe(FOX_PAPER_COLOR);
     expect(ANIMALS.find((animal) => animal.id === 'bat')?.paperColor).toBe(BAT_PAPER_COLOR);
@@ -80,6 +82,9 @@ describe('origami animals gallery', () => {
     expect(ANIMALS.find((animal) => animal.id === 'crane')).toMatchObject({ row: 4, column: 3, playable: false });
     expect(ANIMALS.find((animal) => animal.id === 'ladybug')?.paperColor).toBe(LADYBUG_PAPER_COLOR);
     expect(ANIMALS.find((animal) => animal.id === 'ladybug')).toMatchObject({ row: 5, column: 0, playable: true, name: 'Ladybug' });
+    expect(ANIMALS.find((animal) => animal.id === 'penguin')?.paperColor).toBe(PENGUIN_PAPER_COLOR);
+    expect(ANIMALS.find((animal) => animal.id === 'penguin')).toMatchObject({ row: 5, column: 1, playable: true, name: 'Penguin' });
+    expect(cardGradientFor('penguin')).toEqual({ from: '#e7f7ff', to: '#c9f4f6' });
     expect(ANIMALS.find((animal) => animal.id === 'whale')).toMatchObject({ row: 0, column: 2 });
     expect(ANIMALS.find((animal) => animal.id === 'owl')).toMatchObject({ row: 1, column: 1 });
     expect(ANIMALS.filter((animal) => !animal.playable)).toHaveLength(14);

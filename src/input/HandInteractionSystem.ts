@@ -69,6 +69,11 @@ export interface HandInteractionHandlers {
     raycast(origin: Vector3, direction: Vector3): boolean;
     setHover(hovered: boolean): void;
   };
+  penguinPinch?: {
+    contains(worldPoint: Vector3): boolean;
+    raycast(origin: Vector3, direction: Vector3): boolean;
+    setHover(hovered: boolean): void;
+  };
   mover: PaperMover;
   indicators: HandIndicators;
   debugPanel: DebugPanel;
@@ -307,6 +312,7 @@ export function createHandInteractionSystem(handlers: HandInteractionHandlers) {
       const turtlePinch = handlers.turtlePinch;
       const dinosaurPinch = handlers.dinosaurPinch;
       const ladybugPinch = handlers.ladybugPinch;
+      const penguinPinch = handlers.penguinPinch;
       const hitsPinch = (
         pinch: { contains(worldPoint: Vector3): boolean; raycast(origin: Vector3, direction: Vector3): boolean } | undefined,
         world: Vector3 | null,
@@ -317,20 +323,23 @@ export function createHandInteractionSystem(handlers: HandInteractionHandlers) {
           hitsPinch(owlPinch, leftWorld, leftAim) ||
           hitsPinch(turtlePinch, leftWorld, leftAim) ||
           hitsPinch(dinosaurPinch, leftWorld, leftAim) ||
-          hitsPinch(ladybugPinch, leftWorld, leftAim),
+          hitsPinch(ladybugPinch, leftWorld, leftAim) ||
+          hitsPinch(penguinPinch, leftWorld, leftAim),
       );
       const rightCut = Boolean(
         (cutter && ((rightWorld && cutter.contains(rightWorld)) || (rightAim && cutter.raycast(rightAim.origin, rightAim.direction)))) ||
           hitsPinch(owlPinch, rightWorld, rightAim) ||
           hitsPinch(turtlePinch, rightWorld, rightAim) ||
           hitsPinch(dinosaurPinch, rightWorld, rightAim) ||
-          hitsPinch(ladybugPinch, rightWorld, rightAim),
+          hitsPinch(ladybugPinch, rightWorld, rightAim) ||
+          hitsPinch(penguinPinch, rightWorld, rightAim),
       );
       cutter?.setHover(leftCut || rightCut);
       owlPinch?.setHover(leftCut || rightCut);
       turtlePinch?.setHover(leftCut || rightCut);
       dinosaurPinch?.setHover(leftCut || rightCut);
       ladybugPinch?.setHover(leftCut || rightCut);
+      penguinPinch?.setHover(leftCut || rightCut);
 
       const snapshot = handlers.session.update({
         nowMs,
