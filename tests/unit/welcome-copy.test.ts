@@ -5,30 +5,14 @@ import {
   PRODUCT_SENTENCE,
   PRODUCT_TAGLINE,
   PRODUCT_TITLE,
-  capabilityHeadline,
   startButtonLabel,
 } from '../../src/ui/welcomeCopy.ts';
-import { AR_UNAVAILABLE_MESSAGE, type XRCapabilityReport } from '../../src/xr/XRCapabilities.ts';
-
-function report(overrides: Partial<XRCapabilityReport>): XRCapabilityReport {
-  return {
-    secureContext: true,
-    webxr: true,
-    immersiveArSupported: true,
-    immersiveVrSupported: false,
-    userAgent: 'test',
-    errors: [],
-    notes: [],
-    checkedAt: 0,
-    ...overrides,
-  };
-}
 
 describe('welcome copy', () => {
   it('uses Fold & Play identity across the launcher', () => {
     expect(PRODUCT_TITLE).toBe('Fold & Play');
     expect(PRODUCT_TAGLINE).toBe('Simple folds. Big imagination.');
-    expect(PRODUCT_SENTENCE).toBe('Pick a creation, fold it with your hands, and watch it come to life.');
+    expect(PRODUCT_SENTENCE).toBe('Pinch a creation and fold it with your hands.');
     expect(COPY.gallery.heading).toBe('Explore Creations');
     expect(COPY.gallery.foldNow).toBe('Fold Now');
     expect(COPY.gallery.comingSoon).toBe('Coming Soon');
@@ -50,11 +34,5 @@ describe('welcome copy', () => {
     expect(COPY.session.leaveHeading).toBe('Leave Fold & Play?');
     expect(COPY.session.yesLeave).toBe('Yes, Leave');
     expect(COPY.session.noStay).toBe('No, Stay');
-  });
-
-  it('uses the product fallback when immersive-ar is missing', () => {
-    expect(capabilityHeadline(report({ immersiveArSupported: false }))).toBe(
-      AR_UNAVAILABLE_MESSAGE,
-    );
   });
 });

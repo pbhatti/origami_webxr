@@ -23,9 +23,8 @@ boot().catch((error: unknown) => {
   const status = document.querySelector('[data-status]');
   if (status) {
     status.textContent = `Startup failed: ${message}`;
-  }
-  const headline = document.querySelector('[data-headline]');
-  if (headline) {
-    headline.textContent = 'The studio could not start.';
+    if (status instanceof HTMLElement) {
+      status.hidden = false;
+    }
   }
 });

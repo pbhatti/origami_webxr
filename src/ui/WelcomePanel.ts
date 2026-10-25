@@ -7,9 +7,6 @@ import {
   PRODUCT_SENTENCE,
   PRODUCT_TAGLINE,
   PRODUCT_TITLE,
-  capabilityBody,
-  capabilityHeadline,
-  handTrackingHint,
   startButtonLabel,
 } from './welcomeCopy.ts';
 
@@ -30,12 +27,8 @@ export class WelcomePanel {
   private readonly root: HTMLElement;
   private readonly title: HTMLElement;
   private readonly sentence: HTMLElement;
-  private readonly headline: HTMLElement;
-  private readonly body: HTMLElement;
-  private readonly hint: HTMLElement;
   private readonly startButton: HTMLButtonElement;
   private readonly chips: HTMLElement;
-  private readonly log: HTMLElement;
   private readonly status: HTMLElement;
   private readonly sessionBar: HTMLElement;
   private readonly help: HTMLElement;
@@ -59,16 +52,8 @@ export class WelcomePanel {
     if (completeBody) {
       completeBody.textContent = COPY.completion.body;
     }
-    const gestureText = root.querySelector('[data-gesture-text]');
-    if (gestureText) {
-      gestureText.textContent = COPY.gallery.gestureHint;
-    }
-    this.headline = root.querySelector('[data-headline]') as HTMLElement;
-    this.body = root.querySelector('[data-body]') as HTMLElement;
-    this.hint = root.querySelector('[data-hint]') as HTMLElement;
     this.startButton = root.querySelector('[data-start]') as HTMLButtonElement;
     this.chips = root.querySelector('[data-chips]') as HTMLElement;
-    this.log = root.querySelector('[data-log]') as HTMLElement;
     this.status = root.querySelector('[data-status]') as HTMLElement;
     this.sessionBar = document.querySelector('[data-session-bar]') as HTMLElement;
     this.help = document.querySelector('[data-help]') as HTMLElement;
@@ -145,12 +130,6 @@ export class WelcomePanel {
       'WELCOME',
       'FATAL_ERROR',
     ].includes(input.appState);
-    this.headline.textContent = capabilityHeadline(input.report);
-    this.body.textContent = capabilityBody(input.report);
-    this.hint.textContent = handTrackingHint(
-      input.diagnostics?.handTracking ?? 'unknown',
-      sessionActive,
-    );
     const showEnterMixedReality = input.returnedFromImmersive && input.appState === 'WELCOME';
     this.startButton.textContent = startButtonLabel(showEnterMixedReality);
     this.exitDialog.hidden = !input.exitPrompt;
@@ -179,19 +158,9 @@ export class WelcomePanel {
       ...this.chipNodes(input.report, input.diagnostics, input.appState),
     );
 
-    this.status.textContent = input.lastError
-      ? input.lastError
-      : `${input.appState}${input.transient ? ` · ${input.transient}` : ''}`;
+    this.status.hidden = !input.lastError;
+    this.status.textContent = input.lastError ?? '';
     this.status.dataset.tone = input.lastError ? 'error' : 'ok';
-
-    this.log.hidden = !input.debug;
-    if (input.debug) {
-      this.log.textContent = input.events
-        .slice()
-        .reverse()
-        .map((event) => `${new Date(event.timestamp).toISOString()}  ${event.name}`)
-        .join('\n');
-    }
   }
 
   private chipNodes(

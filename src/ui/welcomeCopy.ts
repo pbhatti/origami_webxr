@@ -1,10 +1,3 @@
-import {
-  AR_UNAVAILABLE_MESSAGE,
-  HAND_TRACKING_UNAVAILABLE_MESSAGE,
-  canLaunchImmersiveAr,
-  type XRCapabilityReport,
-} from '../xr/XRCapabilities.ts';
-
 /** Future gallery groups. No tabs until the gallery architecture adds them. */
 export const CREATION_CATEGORIES = ['Animals', 'Nature', 'Objects', 'Fantasy'] as const;
 
@@ -12,7 +5,7 @@ export const COPY = {
   product: {
     name: 'Fold & Play',
     tagline: 'Simple folds. Big imagination.',
-    description: 'Pick a creation, fold it with your hands, and watch it come to life.',
+    description: 'Pinch a creation and fold it with your hands.',
   },
   gallery: {
     heading: 'Explore Creations',
@@ -90,43 +83,4 @@ export function completionBodyFor(animalId: string): string {
 
 export function startButtonLabel(returnedFromImmersive = false): string {
   return returnedFromImmersive ? COPY.session.enterMixedReality : COPY.session.start;
-}
-
-export function capabilityHeadline(report: XRCapabilityReport | null): string {
-  if (!report) {
-    return 'Checking XR capabilities…';
-  }
-  if (canLaunchImmersiveAr(report)) {
-    return 'Quest Browser can request immersive AR.';
-  }
-  return AR_UNAVAILABLE_MESSAGE;
-}
-
-export function capabilityBody(report: XRCapabilityReport | null): string {
-  if (!report) {
-    return 'Probing navigator.xr.isSessionSupported("immersive-ar") and secure-context requirements.';
-  }
-  if (!report.secureContext) {
-    return 'Open this app over HTTPS or localhost. Quest Browser will not grant WebXR on plain HTTP.';
-  }
-  if (!report.webxr) {
-    return 'This browser does not expose WebXR. Use Quest Browser on a headset, or start a desktop session for placement.';
-  }
-  if (!report.immersiveArSupported) {
-    return `${AR_UNAVAILABLE_MESSAGE}. Start Folding still places a world-stable sheet for desktop debugging.`;
-  }
-  return 'Start Folding opens the creations gallery about a meter in front of you. Recenter never auto-follows your head.';
-}
-
-export function handTrackingHint(handTracking: boolean | 'unknown', sessionActive: boolean): string {
-  if (!sessionActive) {
-    return 'Start Folding, then pinch a creation card. Whale, Fox, Bat, Owl, Turtle, Dinosaur, and Ladybug are playable; other cards are Coming Soon. On desktop, click and drag.';
-  }
-  if (handTracking === true) {
-    return 'Hand tracking granted. Pinch the highlight and fold along the dotted line. Your folding journey fills as each fold locks in.';
-  }
-  if (handTracking === false) {
-    return HAND_TRACKING_UNAVAILABLE_MESSAGE;
-  }
-  return 'Runtime did not expose enabledFeatures; hand tracking grant is unknown until joints appear.';
 }
