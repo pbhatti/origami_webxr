@@ -167,7 +167,7 @@ describe('origami ladybug recipe', () => {
     expect(LADYBUG_RECIPE.steps[0]?.instruction).toBe('Fold along both center lines, then unfold.');
     expect(LADYBUG_RECIPE.steps[4]?.instruction).toBe('Fold the top corner downward.');
     expect(LADYBUG_RECIPE.steps[5]?.instruction).toBe('Fold the small tip upward.');
-    expect(LADYBUG_RECIPE.steps[6]?.instruction).toBe('Fold the small center tip upward.');
+    expect(LADYBUG_RECIPE.steps[6]?.instruction).toBe('Fold the lower head up into the band.');
     expect(LADYBUG_RECIPE.steps[7]?.instruction).toBe('Fold the upper corners inward.');
     expect(LADYBUG_RECIPE.steps[9]?.instruction).toBe('Fold the side and bottom tips inward.');
     expect(LADYBUG_RECIPE.steps.at(-1)?.instruction).toBe('Pinch to bring your ladybug to life!');
@@ -262,22 +262,27 @@ describe('origami ladybug recipe', () => {
     const tipped = LADYBUG_RECIPE.snapshots.tipped;
     const headTip = tipped?.named?.T?.[1] ?? 0;
     const flapHeight = LADYBUG_TOP_CREASE_FRAC * R - tipY;
-    const tipTravel = Math.abs(headTip - tipY);
-    expect(LADYBUG_TIP_CREASE_FRAC).toBeLessThan(0);
-    expect(LADYBUG_TIP_CREASE_FRAC).toBeGreaterThan(tipY / R);
-    expect(tipTravel).toBeLessThan(flapHeight * 0.2);
-    expect(tipTravel).toBeGreaterThan(0);
+    const tipHingeY = LADYBUG_TIP_CREASE_FRAC * R;
+    // The step-3 crease is the base of the small tip, well above the point and
+    // well below the step-2 crease. The old nip sat on the point itself.
+    expect(LADYBUG_TIP_CREASE_FRAC).toBeCloseTo(-0.11, 2);
+    expect(tipHingeY).toBeGreaterThan(tipY + flapHeight * 0.25);
+    expect(tipHingeY).toBeLessThan(tipY + flapHeight * 0.45);
+    expect(headTip).toBeCloseTo(2 * tipHingeY - tipY, 4);
+    expect(headTip).toBeGreaterThan(0);
     expect(headTip).toBeLessThan(LADYBUG_HEAD_CREASE_FRAC * R);
     expect(tipped?.named?.B?.[1]).toBeCloseTo(-R, 4);
     expect(tipped?.named?.L?.[0]).toBeCloseTo(-R, 4);
     const tipHinge = LADYBUG_RECIPE.steps.find((step) => step.id === 'ladybug-tip')?.hinge;
-    expect(Math.abs((tipHinge?.p0[0] ?? 0) - (tipHinge?.p1[0] ?? 0))).toBeLessThan(0.5 * R);
+    const tipHalf = Math.abs((tipHinge?.p0[0] ?? 0) - (tipHinge?.p1[0] ?? 0)) / 2;
+    expect(tipHalf).toBeCloseTo(tipHingeY - tipY, 4);
+    expect(tipHalf).toBeLessThan(0.35 * R);
 
     const headed = LADYBUG_RECIPE.snapshots.headed;
     expect(headed?.named?.B?.[1]).toBeCloseTo(-R, 4);
     expect(headed?.named?.L?.[0]).toBeCloseTo(-R, 4);
-    expect(headed?.named?.T?.[1]).toBeGreaterThan(headTip);
-    expect(LADYBUG_HEAD_CREASE_FRAC).toBeGreaterThan(LADYBUG_TIP_CREASE_FRAC);
+    expect(LADYBUG_HEAD_CREASE_FRAC).toBeCloseTo(0.11, 2);
+    expect(LADYBUG_HEAD_CREASE_FRAC).toBeGreaterThan(headTip / R);
     expect(LADYBUG_HEAD_CREASE_FRAC).toBeLessThan(LADYBUG_TOP_CREASE_FRAC);
 
     const left = LADYBUG_RECIPE.steps.find((step) => step.id === 'ladybug-corner-left')?.hinge;
@@ -316,38 +321,69 @@ describe('origami ladybug recipe', () => {
     expect(bottom?.p0[1]).toBeCloseTo(LADYBUG_BOTTOM_CREASE_FRAC * R, 4);
   });
 
-  it('tucks step 4 behind the upper band and keeps that red triangle through step 5', () => {
+  it('matches illustration 3, folds only that tip, and shows illustration 4', () => {
+    const topped = LADYBUG_RECIPE.snapshots.topped;
+    const tipped = LADYBUG_RECIPE.snapshots.tipped;
     const headed = LADYBUG_RECIPE.snapshots.headed;
     const cornered = LADYBUG_RECIPE.snapshots.cornered;
+    expect(topped).toBeTruthy();
+    expect(tipped).toBeTruthy();
     expect(headed).toBeTruthy();
     expect(cornered).toBeTruthy();
+
+    // Illustration 3. The folded top is ivory paper, an inverted triangle down
+    // to a small tip. The red body stays the broad V and is not covered below
+    // that tip.
+    const whiteBand = coversAt(topped!, 0, 0.2 * R);
+    const whiteTip = coversAt(topped!, 0, -0.2 * R);
+    const bodyBesideTip = coversAt(topped!, 0.55 * R, -0.2 * R);
+    const lowerBody = coversAt(topped!, 0, -0.55 * R);
+    expect(whiteBand[0]?.wind ?? 0).toBeGreaterThan(0);
+    expect(whiteBand.some((face) => face.wind < 0)).toBe(true);
+    expect(whiteTip[0]?.wind ?? 0).toBeGreaterThan(0);
+    expect(whiteTip[0]!.layer).toBeGreaterThan(whiteTip.find((face) => face.wind < 0)?.layer ?? 99);
+    expect(bodyBesideTip).toHaveLength(1);
+    expect(bodyBesideTip[0]?.wind ?? 0).toBeLessThan(0);
+    expect(lowerBody[0]?.wind ?? 0).toBeLessThan(0);
+    expect(lowerBody.every((face) => face.layer === 0)).toBe(true);
+
+    // Illustration 4. The tip has flipped to a red triangle on the white flap.
+    // White stays visible above the apex and on both sides. The body outline
+    // is the same as illustration 3.
+    const aboveApex = coversAt(tipped!, 0, 0.22 * R);
+    const redTriangle = coversAt(tipped!, 0, 0.04 * R);
+    const ivoryUnder = redTriangle.find((face) => face.wind > 0);
+    const leftWhite = coversAt(tipped!, -0.2 * R, 0.04 * R);
+    const rightWhite = coversAt(tipped!, 0.2 * R, 0.04 * R);
+    expect(aboveApex[0]?.wind ?? 0).toBeGreaterThan(0);
+    expect(redTriangle[0]?.wind ?? 0).toBeLessThan(0);
+    expect(ivoryUnder).toBeTruthy();
+    expect(redTriangle[0]!.layer).toBeGreaterThan(ivoryUnder!.layer);
+    expect(leftWhite[0]?.wind ?? 0).toBeGreaterThan(0);
+    expect(rightWhite[0]?.wind ?? 0).toBeGreaterThan(0);
+    expect(tipped?.named?.L?.[0]).toBeCloseTo(topped?.named?.L?.[0] ?? 0, 4);
+    expect(tipped?.named?.B?.[1]).toBeCloseTo(topped?.named?.B?.[1] ?? 0, 4);
+    expect(tipped?.named?.T?.[1] ?? 0).toBeGreaterThan(0.05 * R);
+    expect(tipped?.named?.T?.[1] ?? 0).toBeLessThan(LADYBUG_HEAD_CREASE_FRAC * R);
+    const belowHinge = coversAt(tipped!, 0, -0.2 * R);
+    expect(belowHinge[0]?.wind ?? 0).toBeLessThan(0);
+    expect(belowHinge.every((face) => face.layer === 0)).toBe(true);
+
+    // Step 4 parks the lower head under the white band. Corners leave that
+    // band in place, and the finished ladybug still shows it.
     const band = coversAt(headed!, 0, 0.24 * R);
     const bandSide = coversAt(headed!, 0.2 * R, 0.24 * R);
     expect(band[0]?.wind ?? 0).toBeGreaterThan(0);
     expect(bandSide[0]?.wind ?? 0).toBeGreaterThan(0);
     expect(band[0]?.layer).toBe(bandSide[0]?.layer);
-
-    const detail = coversAt(headed!, 0, 0.05 * R);
-    const ivoryUnderDetail = detail.find((face) => face.wind > 0);
-    expect(detail[0]?.wind ?? 0).toBeLessThan(0);
-    expect(ivoryUnderDetail).toBeTruthy();
-    expect(detail[0]!.layer).toBeGreaterThan(ivoryUnderDetail!.layer);
-    expect(headed?.named?.T?.[1] ?? 0).toBeGreaterThan(0.12 * R);
-    expect(headed?.named?.T?.[1] ?? 0).toBeLessThan(LADYBUG_TOP_CREASE_FRAC * R);
-
-    const afterCorners = coversAt(cornered!, 0, 0.05 * R);
-    expect(afterCorners[0]?.wind ?? 0).toBeLessThan(0);
-    expect(afterCorners[0]!.layer).toBeGreaterThan(afterCorners.find((face) => face.wind > 0)?.layer ?? 99);
-    const left = coversAt(cornered!, -0.06 * R, 0.02 * R);
-    const right = coversAt(cornered!, 0.06 * R, 0.02 * R);
-    expect(left[0]?.wind ?? 0).toBeLessThan(0);
-    expect(right[0]?.wind ?? 1).toBeLessThan(0);
-    expect(left[0]?.layer).toBe(right[0]?.layer);
-
-    const finished = coversAt(LADYBUG_RECIPE.snapshots.ladybug!, 0, 0.05 * R);
-    expect(finished[0]?.wind ?? 0).toBeLessThan(0);
+    expect(coversAt(headed!, 0, -0.2 * R)[0]?.wind ?? 0).toBeLessThan(0);
+    const afterCorners = coversAt(cornered!, 0, 0.24 * R);
+    expect(afterCorners[0]?.wind ?? 0).toBeGreaterThan(0);
+    expect(afterCorners[0]?.layer).toBe(band[0]?.layer);
     const finishedBand = coversAt(LADYBUG_RECIPE.snapshots.ladybug!, 0, 0.24 * R);
     expect(finishedBand[0]?.wind ?? 0).toBeGreaterThan(0);
+    const finishedBody = coversAt(LADYBUG_RECIPE.snapshots.ladybug!, 0, -0.3 * R);
+    expect(finishedBody[0]?.wind ?? 0).toBeLessThan(0);
   });
 
   it('reveals two eyes and five spots only when the ladybug comes to life', () => {
@@ -467,10 +503,11 @@ describe('origami ladybug recipe', () => {
 
     const above: [number, number, number] = [0, tipPoint[1] + 0.012, 0.004];
     const half = PAPER_SIZE_M / 2;
-    const short = grabAdjustedAngle([above[0], above[1] + 0.001, above[2]], above, 0, 0, 180, half, hinge);
+    // The flap is about 0.21R tall, so a few millimetres is still short of the snap.
+    const short = grabAdjustedAngle([above[0], above[1] + 0.008, above[2]], above, 0, 0, 180, half, hinge);
     expect(short / 180).toBeGreaterThan(0);
     expect(short / 180).toBeLessThan(FOLD_ASSIST.autoSnapThreshold);
-    const folded = grabAdjustedAngle([above[0], above[1] + 0.008, above[2]], above, 0, 0, 180, half, hinge);
+    const folded = grabAdjustedAngle([above[0], above[1] + 0.028, above[2]], above, 0, 0, 180, half, hinge);
     expect(folded / 180).toBeGreaterThanOrEqual(FOLD_ASSIST.autoSnapThreshold);
 
     const engine = new OrigamiEngine(LADYBUG_RECIPE, LADYBUG_NAMED);
@@ -479,7 +516,7 @@ describe('origami ladybug recipe', () => {
     }
     expect(engine.currentStep?.id).toBe('ladybug-tip');
     engine.beginGrab(above);
-    engine.updateFold([above[0], above[1] + 0.001, above[2]], false, 16);
+    engine.updateFold([above[0], above[1] + 0.008, above[2]], false, 16);
     expect(engine.foldCompletion).toBeLessThan(FOLD_ASSIST.autoSnapThreshold);
     expect(engine.release().ok).toBe(false);
     drain(engine);
@@ -488,7 +525,7 @@ describe('origami ladybug recipe', () => {
     expect(engine.angle).toBeCloseTo(0, 5);
 
     engine.beginGrab(above);
-    engine.updateFold([above[0], above[1] + 0.008, above[2]], false, 16);
+    engine.updateFold([above[0], above[1] + 0.028, above[2]], false, 16);
     expect(engine.foldCompletion).toBeGreaterThanOrEqual(FOLD_ASSIST.autoSnapThreshold);
     if (engine.enginePhase === 'folding') {
       expect(engine.release().ok).toBe(true);

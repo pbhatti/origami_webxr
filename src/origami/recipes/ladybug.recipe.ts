@@ -12,19 +12,26 @@ const H = PAPER_SIZE_M / 2;
 const R = H * Math.SQRT2;
 
 /**
- * Crease positions measured from the "Make a Ladybug" diagram, as fractions
- * of the diamond half-extent R. Each panel was framed on its own left/right
- * corners (y = 0) and bottom tip (y = -R).
+ * Crease positions measured from the "Make a Ladybug" sheet, as fractions of
+ * the diamond half-extent R. Each panel was framed on its left/right corners
+ * (y = 0) and the bottom tip (y = -R).
  *
- * Step 2 dash sits in the upper third, 0.34R above center.
- * Step 3 only nips the lowered point so the downward tip is still there.
- * Step 4 folds that tip up at -0.06R. The turned flap is the red triangle
- * in the white band; anything that would show ivory goes behind the band.
+ * Step 2's dash is centered at 0.348R (kept at 0.34). The top point reflects
+ * to -0.32R: the white inverted triangle of illustration 3, tip included.
+ * Illustration 3's fold dash crosses that triangle at -0.11R. Only the small
+ * tip below it folds. It lands as illustration 4's red triangle, apex +0.10R,
+ * half-width 0.21R at the hinge. The old nip sat at -0.30R and moved one
+ * millimetre of the point.
+ * Illustration 4's next dash is at +0.11R, just above that apex. Folding the
+ * lower head there parks its bottom edge on the top rim (0.33R) and leaves
+ * illustration 5's white band. A higher crease would spike past the sheet.
  * Step 6 side dashes are at ±0.73R and the bottom dash is at -0.74R.
  */
 export const LADYBUG_TOP_CREASE_FRAC = 0.34;
-export const LADYBUG_TIP_CREASE_FRAC = -0.3;
-export const LADYBUG_HEAD_CREASE_FRAC = -0.06;
+/** Step 3 hinge: base of the small lowered tip. */
+export const LADYBUG_TIP_CREASE_FRAC = -0.11;
+/** Step 4 hinge: lower head folds up onto the top rim. */
+export const LADYBUG_HEAD_CREASE_FRAC = 0.11;
 export const LADYBUG_SIDE_CREASE_FRAC = 0.73;
 export const LADYBUG_BOTTOM_CREASE_FRAC = -0.74;
 /** Step 5 diagonal meets the flat top this far from center. */
@@ -43,11 +50,8 @@ const SHOULDER_X = R - TOP_Y;
 const SHOULDER_L: Vec3 = [-SHOULDER_X, TOP_Y, 0];
 const SHOULDER_R: Vec3 = [SHOULDER_X, TOP_Y, 0];
 
-const TIP_Y = LADYBUG_TIP_CREASE_FRAC * R;
-const TIP_HALF = 0.22 * R;
-
+const TIP_HINGE_Y = LADYBUG_TIP_CREASE_FRAC * R;
 const HEAD_Y = LADYBUG_HEAD_CREASE_FRAC * R;
-const HEAD_HALF = 0.55 * R;
 
 const SIDE_X = LADYBUG_SIDE_CREASE_FRAC * R;
 const SIDE_HALF_Y = R - SIDE_X;
@@ -198,50 +202,36 @@ function foldStacked(from: MeshSnapshot, hinge: HingeDefinition, tip: Vec3): { s
   return { snapshot: stacked, minLayer: Number.isFinite(minLayer) ? minLayer : 1 };
 }
 
-function polygonWindZ(vertices: Vec3[], indices: number[]): number {
-  let z = 0;
-  for (let i = 0; i < indices.length; i += 1) {
-    const current = vertices[indices[i] ?? -1];
-    const next = vertices[indices[(i + 1) % indices.length] ?? -1];
-    if (!current || !next) {
-      continue;
-    }
-    z += (current[0] - next[0]) * (current[1] + next[1]);
-  }
-  return z;
-}
-
 /**
- * Turn the downward white tip up. The second turn shows red and stays in
- * front — that is the small triangle in the white band. A further turn would
- * show ivory on top of the band; those faces go behind the upper sheet, with
- * the winding reversed so a peeking edge is still red.
+ * Fold the lower head up and park it under the stationary upper band.
+ * The band stays the visible white of illustration 5. The folded paper lies
+ * on that band, so it does not poke past the top rim or cover the band.
  */
-function foldHeadDetail(from: MeshSnapshot, hinge: HingeDefinition, tip: Vec3): { snapshot: MeshSnapshot; minLayer: number } {
+function parkBehindUpper(from: MeshSnapshot, hinge: HingeDefinition, tip: Vec3): { snapshot: MeshSnapshot; minLayer: number } {
   const moved = deformByHinge(from, hinge, -180, tip);
   const folded = applyHingeSnapshot(from, hinge, 'valley', 180, tip);
-  const stacked = stackFlap(folded, moved.movingFaceIds);
-  const occluder = stacked.faces.reduce((min, face) => {
+  const upper = folded.faces.reduce((min, face) => {
     if (moved.movingFaceIds.has(face.id) || face.layer <= 0) {
       return min;
     }
     return Math.min(min, face.layer);
   }, Number.POSITIVE_INFINITY);
-  const behind = Number.isFinite(occluder) ? occluder : 1;
+  const band = Number.isFinite(upper) ? upper : 1;
+  const movingLevels = [
+    ...new Set(folded.faces.filter((face) => moved.movingFaceIds.has(face.id)).map((face) => face.layer)),
+  ].sort((a, b) => a - b);
+  const remap = new Map(movingLevels.map((level, index) => [level, band + index]));
+  const shift = movingLevels.length;
   let minLayer = Number.POSITIVE_INFINITY;
-  const faces = stacked.faces.map((face) => {
+  const faces = folded.faces.map((face) => {
     if (!moved.movingFaceIds.has(face.id)) {
-      return face.layer >= behind ? { ...face, layer: face.layer + 1 } : face;
+      return face.layer >= band ? { ...face, layer: face.layer + shift } : face;
     }
-    if (polygonWindZ(stacked.vertices, face.vertices) > 0) {
-      minLayer = Math.min(minLayer, behind);
-      return { ...face, vertices: [...face.vertices].reverse(), layer: behind };
-    }
-    const layer = face.layer + 1;
+    const layer = remap.get(face.layer) ?? band;
     minLayer = Math.min(minLayer, layer);
     return { ...face, layer };
   });
-  return { snapshot: { ...stacked, faces }, minLayer: Number.isFinite(minLayer) ? minLayer : 1 };
+  return { snapshot: { ...folded, faces }, minLayer: Number.isFinite(minLayer) ? minLayer : band };
 }
 
 function faceViewer(hinge: HingeDefinition, tip: Vec3): HingeDefinition {
@@ -320,21 +310,26 @@ const topped: MeshSnapshot = {
   named: { ...REST, T: T_DOWN },
 };
 
+// Flap edges fall at 45° from the lowered tip, so the hinge meets them at
+// x = ±(hingeY - tipY). That is the base of the small tip, not the body.
+const TIP_HINGE_HALF = TIP_HINGE_Y - T_DOWN[1];
+const TIP_HINGE_L: Vec3 = [-TIP_HINGE_HALF, TIP_HINGE_Y, 0];
+const TIP_HINGE_R: Vec3 = [TIP_HINGE_HALF, TIP_HINGE_Y, 0];
+
 const HINGE_TIP: HingeDefinition = {
   ...faceViewer(
     {
       id: 'ladybug-tip',
-      p0: [-TIP_HALF, TIP_Y, 0],
-      p1: [TIP_HALF, TIP_Y, 0],
+      p0: TIP_HINGE_L,
+      p1: TIP_HINGE_R,
       fixedFaces: ['bot-left', 'bot-right'],
       movingFaces: ['top-left', 'top-right'],
       minMovingLayer: toppedFold.minLayer,
-      reachM: 0.2 * R + 0.008,
+      reachM: TIP_HINGE_HALF + 0.008,
     },
     T_DOWN,
   ),
-  // Keep the moving hint on the tip itself. A finger that lands just above
-  // the short crease must still swing that tip upward, not the sheet.
+  // The finger grabs the small tip below this crease and swings it upward.
   angleHint: T_DOWN,
 };
 
@@ -342,18 +337,22 @@ export const LADYBUG_TIP_POINT: Vec3 = T_DOWN;
 
 const tippedFold = foldStacked(topped, HINGE_TIP, T_DOWN);
 const T_UP = landmarkAfterHinge(T_DOWN, HINGE_TIP, 180, 'valley');
+/** Center of the step-3 crease. Step 4 swings this edge up onto the top rim. */
+const HEAD_EDGE: Vec3 = [0, TIP_HINGE_Y, 0];
 const tipped: MeshSnapshot = separateLayers(
   separateLayers(
     {
       ...tippedFold.snapshot,
       outline: [SHOULDER_L, L, B, RIGHT, SHOULDER_R],
-      named: { ...topped.named, T: T_UP },
+      named: { ...topped.named, T: T_UP, HL: HEAD_EDGE },
     },
     toppedFold.minLayer,
   ),
   tippedFold.minLayer,
 );
 
+const HEAD_HALF = HEAD_Y - T_DOWN[1];
+const HEAD_HINT: Vec3 = [0, (TIP_HINGE_Y + HEAD_Y) / 2, 0];
 const HINGE_HEAD: HingeDefinition = faceViewer(
   {
     id: 'ladybug-head',
@@ -362,17 +361,17 @@ const HINGE_HEAD: HingeDefinition = faceViewer(
     fixedFaces: ['bot-left', 'bot-right'],
     movingFaces: ['top-left', 'top-right'],
     minMovingLayer: toppedFold.minLayer,
-    reachM: 0.36 * R + 0.008,
+    reachM: HEAD_Y - T_DOWN[1] + 0.008,
   },
-  T_UP,
+  HEAD_HINT,
 );
 
-const headedFold = foldHeadDetail(tipped, HINGE_HEAD, T_UP);
-const T_HEAD = landmarkAfterHinge(T_UP, HINGE_HEAD, 180, 'valley');
+const headedFold = parkBehindUpper(tipped, HINGE_HEAD, HEAD_HINT);
+const HL_UP = landmarkAfterHinge(HEAD_EDGE, HINGE_HEAD, 180, 'valley');
 const headed: MeshSnapshot = {
   ...headedFold.snapshot,
   outline: [SHOULDER_L, L, B, RIGHT, SHOULDER_R],
-  named: { ...tipped.named, T: T_HEAD },
+  named: { ...tipped.named, ...headedFold.snapshot.named, HL: HL_UP },
 };
 
 const CORNER_REACH = 0.018;
@@ -722,7 +721,7 @@ export const LADYBUG_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-tip',
         faceIds: ['top-left', 'top-right'],
-        polygonUV: uvPoly([[-TIP_HALF, TIP_Y, 0], T_DOWN, [TIP_HALF, TIP_Y, 0]]),
+        polygonUV: uvPoly([TIP_HINGE_L, T_DOWN, TIP_HINGE_R]),
         allowedHands: 'either',
         hitDisk: { center: T_DOWN, radiusM: LADYBUG_TIP_HIT_RADIUS_M },
       },
@@ -734,14 +733,14 @@ export const LADYBUG_RECIPE: OrigamiRecipe = {
       arrowPathLocal: arc([0, T_DOWN[1] + 0.006, 0.004], [0, T_UP[1] - 0.004, 0.004], 0.016),
       lockCreaseIds: ['ladybug-tip'],
       meshStrategy: 'hinge',
-      validationNotes: 'Step 3. A short nip at the lowered point. The downward tip stays for step 4.',
+      validationNotes: 'Step 3. Only the small tip below the head hinge folds up. It lands as the red triangle on the white band.',
     }),
     step({
       id: 'ladybug-head',
       ordinal: 7,
       progressStage: 4,
       title: 'Shape the head detail',
-      instruction: 'Fold the small center tip upward.',
+      instruction: 'Fold the lower head up into the band.',
       fromSnapshotId: 'tipped',
       toSnapshotId: 'headed',
       actionType: 'fold',
@@ -750,18 +749,18 @@ export const LADYBUG_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-head-tip',
         faceIds: ['top-left', 'top-right'],
-        polygonUV: uvPoly([[-0.28 * R, HEAD_Y, 0], T_UP, [0.28 * R, HEAD_Y, 0]]),
+        polygonUV: uvPoly([[-HEAD_HALF, HEAD_Y, 0], [0, TIP_HINGE_Y, 0], [HEAD_HALF, HEAD_Y, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
       targetAngleDeg: 180,
       minAngleDeg: 0,
       maxAngleDeg: 180,
-      targetLandmarks: [{ sourceVertexId: 'T', target: T_HEAD }],
-      arrowPathLocal: arc([0, T_UP[1] + 0.012, 0.004], [0, T_HEAD[1] - 0.006, 0.005], 0.02),
+      targetLandmarks: [{ sourceVertexId: 'HL', target: HL_UP }],
+      arrowPathLocal: arc([0, HEAD_EDGE[1] + 0.004, 0.004], [0, HL_UP[1] - 0.006, 0.005], 0.02),
       lockCreaseIds: ['ladybug-head'],
       meshStrategy: 'hinge',
-      validationNotes: 'Step 4. The downward tip folds up behind the upper band, leaving a red triangle in the white head.',
+      validationNotes: 'Step 4. The lower head folds up under the white band. The outer silhouette stays inside the top rim.',
     }),
     step({
       id: 'ladybug-corner-left',
