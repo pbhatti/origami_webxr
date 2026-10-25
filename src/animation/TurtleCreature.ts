@@ -1,87 +1,16 @@
-import {
-  BufferAttribute,
-  BufferGeometry,
-  Color,
-  DoubleSide,
-  Group,
-  Mesh,
-  MeshStandardMaterial,
-  SphereGeometry,
-  type Object3D,
-  Vector3,
-} from 'three';
-import {
-  TURTLE_CREAM,
-  TURTLE_EYE,
-  TURTLE_EYE_COLOR,
-  TURTLE_EYE_HIGHLIGHT,
-  TURTLE_PAPER_COLOR,
-  TURTLE_HEX_RADIUS,
-  TURTLE_SHELL_ALT,
-  turtleShellHexes,
-} from '../origami/recipes/turtle.recipe.ts';
+import { Group, type Object3D, Vector3 } from 'three';
 import { debugEvents } from '../telemetry/DebugEvents.ts';
-
-const HEX_RADIUS = TURTLE_HEX_RADIUS;
-const CREAM_Z = 0.0064;
-const GREEN_Z = 0.0071;
-
-function mat(color: string, offset = -2): MeshStandardMaterial {
-  return new MeshStandardMaterial({
-    color: new Color(color),
-    roughness: 0.72,
-    metalness: 0,
-    side: DoubleSide,
-    polygonOffset: true,
-    polygonOffsetFactor: offset,
-    polygonOffsetUnits: offset,
-  });
-}
-
-function hexGeometry(radius: number, z: number): BufferGeometry {
-  const positions: number[] = [];
-  for (let i = 0; i < 6; i += 1) {
-    const a0 = (Math.PI / 3) * i + Math.PI / 6;
-    const a1 = (Math.PI / 3) * (i + 1) + Math.PI / 6;
-    positions.push(0, 0, z, Math.cos(a0) * radius, Math.sin(a0) * radius, z, Math.cos(a1) * radius, Math.sin(a1) * radius, z);
-  }
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
-  geometry.computeVertexNormals();
-  return geometry;
-}
+import { createTurtleEye, createTurtleShellPattern } from './turtleAppearance.ts';
 
 function shellMarks(): Group {
   const group = new Group();
   group.name = 'turtle-shell';
-  const creamGeo = hexGeometry(HEX_RADIUS * 0.98, CREAM_Z);
-  const greenGeo = hexGeometry(HEX_RADIUS * 0.8, GREEN_Z);
-  const creamMat = mat(TURTLE_CREAM, -1);
-  const leafMat = mat(TURTLE_PAPER_COLOR, -3);
-  const altMat = mat(TURTLE_SHELL_ALT, -3);
-  for (const mark of turtleShellHexes(HEX_RADIUS)) {
-    const cream = new Mesh(creamGeo, creamMat);
-    const fill = new Mesh(greenGeo, mark.alt ? altMat : leafMat);
-    cream.position.set(mark.x, mark.y, 0);
-    fill.position.set(mark.x, mark.y, 0);
-    cream.renderOrder = 2;
-    fill.renderOrder = 3;
-    group.add(cream, fill);
-  }
+  group.add(createTurtleShellPattern());
   return group;
 }
 
 function eye(): Group {
-  const group = new Group();
-  group.name = 'turtle-eye';
-  const ball = new Mesh(new SphereGeometry(0.0092, 20, 16), mat(TURTLE_EYE_COLOR, -4));
-  const pupil = new Mesh(new SphereGeometry(0.004, 14, 12), mat('#0c0b09', -4));
-  pupil.position.z = 0.0065;
-  const highlight = new Mesh(new SphereGeometry(0.0021, 10, 8), mat(TURTLE_EYE_HIGHLIGHT, -5));
-  highlight.position.set(0.0024, 0.0026, 0.008);
-  group.add(ball, pupil, highlight);
-  group.position.set(TURTLE_EYE[0], TURTLE_EYE[1], TURTLE_EYE[2]);
-  return group;
+  return createTurtleEye();
 }
 
 export class TurtleCreature {

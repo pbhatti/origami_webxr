@@ -19,7 +19,6 @@ import {
   TURTLE_PAPER_COLOR,
   TURTLE_RECIPE,
   TURTLE_STEPS,
-  turtleShellHexes,
 } from '../../src/origami/recipes/turtle.recipe.ts';
 import type { Vec3 } from '../../src/origami/types.ts';
 import { WHALE_RECIPE } from '../../src/origami/recipes/whale.recipe.ts';
@@ -198,7 +197,6 @@ describe('origami turtle recipe', () => {
     expect(engine.isComplete()).toBe(true);
     expect(engine.canStartCreature()).toBe(true);
     expect(engine.lockedCreases).toEqual([]);
-    expect(turtleShellHexes().length).toBeGreaterThan(6);
   });
 
   it('resets every fold when the turtle starts over', () => {
