@@ -338,8 +338,13 @@ function turtleModel(): Group {
 }
 
 function dinosaurModel(): Group {
-  const group = snapshotModel('dinosaur', DINOSAUR_RECIPE.snapshots.dinosaur, DINOSAUR_PAPER_COLOR);
+  const snapshot = DINOSAUR_RECIPE.snapshots.dinosaur;
+  const group = snapshotModel('dinosaur', snapshot, DINOSAUR_PAPER_COLOR);
+  if (!snapshot) {
+    return group;
+  }
   const decor = new Group();
+  decor.name = 'dinosaur-preview-decor';
   const markMat = paperMat(DINOSAUR_MARK_COLOR);
   for (const mark of dinosaurSpineMarks()) {
     const positions = mark.points.flatMap((point) => [point[0], point[1], point[2]]);
@@ -353,10 +358,12 @@ function dinosaurModel(): Group {
   const eye = new Mesh(new SphereGeometry(0.0042, 14, 12), paperMat(DINOSAUR_EYE_COLOR));
   const pupil = new Mesh(new SphereGeometry(0.0018, 10, 8), paperMat('#0c0b09'));
   const highlight = new Mesh(new SphereGeometry(0.001, 8, 8), paperMat(DINOSAUR_EYE_HIGHLIGHT));
+  eye.name = 'dinosaur-preview-eye';
   eye.position.set(DINOSAUR_EYE[0], DINOSAUR_EYE[1], DINOSAUR_EYE[2]);
   pupil.position.set(DINOSAUR_EYE[0], DINOSAUR_EYE[1], DINOSAUR_EYE[2] + 0.003);
   highlight.position.set(DINOSAUR_EYE[0] + 0.0012, DINOSAUR_EYE[1] + 0.0012, DINOSAUR_EYE[2] + 0.004);
   decor.add(eye, pupil, highlight);
+  frameDecor(snapshot, decor);
   group.add(decor);
   return group;
 }

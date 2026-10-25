@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Vector3 } from 'three';
+import { Box3, Vector3 } from 'three';
+import { origamiModels } from '../../src/gallery/OrigamiModelRegistry.ts';
 import { DinosaurCreature } from '../../src/animation/DinosaurCreature.ts';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
 import { CREASE_ALIGN_TOL_M, creaseAlignmentErrorM } from '../../src/origami/creaseMath.ts';
@@ -320,6 +321,25 @@ describe('origami dinosaur recipe', () => {
     expect(eye?.position.x).toBeCloseTo(DINOSAUR_EYE[0], 4);
     expect(eye?.position.y).toBeCloseTo(DINOSAUR_EYE[1], 4);
     expect(spine?.children.length).toBeGreaterThanOrEqual(4);
+
+    const preview = origamiModels.create('dinosaur', DINOSAUR_PAPER_COLOR);
+    preview.updateMatrixWorld(true);
+    const previewEye = preview.getObjectByName('dinosaur-preview-eye');
+    const paper = preview.children.find((child) => child.type === 'Mesh');
+    expect(previewEye).toBeTruthy();
+    expect(paper).toBeTruthy();
+    const eyeAt = new Vector3();
+    previewEye!.getWorldPosition(eyeAt);
+    const paperBox = new Box3().setFromObject(paper!);
+    const center = paperBox.getCenter(new Vector3());
+    expect(eyeAt.x).toBeGreaterThan(paperBox.min.x);
+    expect(eyeAt.x).toBeLessThan(paperBox.max.x);
+    expect(eyeAt.y).toBeGreaterThan(paperBox.min.y);
+    expect(eyeAt.y).toBeLessThan(paperBox.max.y);
+    expect(eyeAt.x).toBeGreaterThan(center.x);
+    expect(eyeAt.y).toBeGreaterThan(center.y);
+    creature.tick(0.4);
+    expect(creature.group.getObjectByName('dinosaur-eye')?.rotation.z).not.toBe(0);
   });
 });
 
