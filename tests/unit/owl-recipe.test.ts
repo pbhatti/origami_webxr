@@ -27,54 +27,87 @@ function commitCurrent(engine: OrigamiEngine): void {
 }
 
 describe('origami owl recipe', () => {
-  it('is a valid five-step recipe and leaves the other animals alone', () => {
+  it('is a valid six-step recipe and leaves the other animals alone', () => {
     expect(OWL_PAPER_COLOR).toBe('#4E9A4A');
     expect(validateRecipe(OWL_RECIPE)).toEqual([]);
     expect(OWL_STEPS).toEqual([
-      'center-crease',
-      'bottom-corner-up',
+      'guide-creases',
       'top-corner-down',
+      'bottom-corner-up',
       'side-folds-inward',
+      'body-shape',
       'owl-decoration',
     ]);
-    expect(progressFromRecipe(OWL_RECIPE).totalSteps).toBe(5);
+    expect(progressFromRecipe(OWL_RECIPE).totalSteps).toBe(6);
+    expect(OWL_RECIPE.steps.filter((step) => step.progressStage === 1).map((step) => step.id)).toEqual([
+      'owl-vertical-fold',
+      'owl-vertical-open',
+      'owl-horizontal-fold',
+      'owl-horizontal-open',
+    ]);
     expect(OWL_RECIPE.steps.filter((step) => step.progressStage === 4).map((step) => step.id)).toEqual([
       'owl-side-left',
       'owl-side-right',
     ]);
+    expect(OWL_RECIPE.steps.at(-1)?.id).toBe('owl-decorate');
+    expect(OWL_RECIPE.steps.at(-1)?.actionType).toBe('crease-press');
     expect(WHALE_RECIPE.steps[0]?.id).toBe('diag-fold');
     expect(FOX_RECIPE.steps[0]?.id).toBe('fox-half');
     expect(BAT_RECIPE.steps[0]?.id).toBe('bat-triangle');
     for (const step of OWL_RECIPE.steps) {
       expect(creaseAlignmentErrorM(step)).toBeLessThanOrEqual(CREASE_ALIGN_TOL_M);
+      expect(step.hinge.p0).not.toEqual(step.hinge.p1);
     }
   });
 
-  it('folds the center, reopens the diamond, then builds the owl body', () => {
+  it('creases the diamond, then builds a compact layered owl', () => {
     const engine = new OrigamiEngine(OWL_RECIPE, OWL_NAMED);
-    commitCurrent(engine);
-    expect(engine.currentStep?.id).toBe('owl-center-open');
-    expect(engine.progress()).toMatchObject({ committedCount: 0, totalSteps: 5, activeIndex: 0 });
-    expect(engine.isStepCommitted('owl-center-fold')).toBe(true);
+    expect(engine.currentStep?.id).toBe('owl-vertical-fold');
+    expect(engine.currentStep?.extraCreaseLines?.length).toBe(1);
 
     commitCurrent(engine);
+    expect(engine.currentStep?.id).toBe('owl-vertical-open');
+    expect(engine.isStepCommitted('owl-vertical-fold')).toBe(true);
+    expect(engine.progress()).toMatchObject({ committedCount: 0, totalSteps: 6, activeIndex: 0 });
+
+    commitCurrent(engine);
+    commitCurrent(engine);
+    expect(engine.currentStep?.id).toBe('owl-horizontal-open');
+    commitCurrent(engine);
+
     const reopened = OWL_RECIPE.snapshots.diamond;
     expect(reopened?.named?.L?.[0]).toBeLessThan(-0.1);
-    expect(engine.currentStep?.id).toBe('owl-bottom');
-    expect(engine.progress()).toMatchObject({ committedCount: 1, totalSteps: 5, activeIndex: 1 });
-
-    commitCurrent(engine);
-    const bottom = OWL_RECIPE.snapshots.bottom;
-    expect(bottom?.named?.B?.[1]).toBeGreaterThan(0);
+    expect(reopened?.named?.T?.[1]).toBeGreaterThan(0.1);
+    expect(engine.currentStep?.id).toBe('owl-top');
+    expect(engine.progress()).toMatchObject({ committedCount: 1, totalSteps: 6, activeIndex: 1 });
+    expect(engine.lockedCreases.map((crease) => crease.id).sort()).toEqual(['owl-horizontal', 'owl-vertical']);
 
     commitCurrent(engine);
     const topped = OWL_RECIPE.snapshots.topped;
-    expect(topped?.named?.T?.[1]).toBeGreaterThan((bottom?.named?.B?.[1] ?? 0) + 0.02);
-    expect(topped?.named?.T?.[1]).toBeLessThan(0.08);
+    const forehead = topped?.named?.T?.[1] ?? 0;
+    expect(forehead).toBeGreaterThan(0.08);
+    expect(forehead).toBeLessThan(0.11);
+    expect(topped?.faces.some((face) => face.layer >= 1)).toBe(true);
+
+    commitCurrent(engine);
+    const raised = OWL_RECIPE.snapshots.raised;
+    const belly = raised?.named?.B?.[1] ?? 0;
+    expect(belly).toBeGreaterThan(forehead);
+    expect(belly).toBeLessThan(0.12);
+    expect(engine.currentStep?.id).toBe('owl-side-left');
 
     commitCurrent(engine);
     expect(engine.currentStep?.id).toBe('owl-side-right');
-    expect(engine.progress()).toMatchObject({ committedCount: 3, totalSteps: 5, activeIndex: 3 });
+    expect(engine.progress()).toMatchObject({ committedCount: 3, totalSteps: 6, activeIndex: 3 });
+    expect(OWL_RECIPE.steps.find((step) => step.id === 'owl-side-left')?.hinge.id).toBe('owl-side-left');
+    expect(OWL_RECIPE.steps.find((step) => step.id === 'owl-side-right')?.hinge.id).toBe('owl-side-right');
+
+    commitCurrent(engine);
+    const sided = OWL_RECIPE.snapshots.sided;
+    expect(sided?.named?.L?.[0]).toBeGreaterThan(0);
+    expect(sided?.named?.RIGHT?.[0]).toBeLessThan(0);
+    const sidedBounds = snapshotBounds(sided!);
+    expect(sidedBounds.maxY - sidedBounds.minY).toBeLessThan(sidedBounds.maxX - sidedBounds.minX + 0.03);
 
     commitCurrent(engine);
     const body = OWL_RECIPE.snapshots.body;
@@ -82,9 +115,34 @@ describe('origami owl recipe', () => {
     expect(body?.named?.RIGHT?.[0]).toBeLessThan(0);
     expect(snapshotArea(body!)).toBeGreaterThan(0.006);
     const bounds = snapshotBounds(body!);
-    expect(bounds.maxY - bounds.minY).toBeGreaterThan(0.05);
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+    expect(width).toBeGreaterThan(0.1);
+    expect(width).toBeLessThan(0.16);
+    expect(height / width).toBeLessThan(1.15);
+    expect(height / width).toBeGreaterThan(0.7);
+    expect(new Set(body?.faces.map((face) => face.layer)).size).toBeGreaterThan(2);
     expect(engine.currentStep?.id).toBe('owl-decorate');
-    expect(engine.progress()).toMatchObject({ committedCount: 4, totalSteps: 5, activeIndex: 4 });
+    expect(engine.progress()).toMatchObject({ committedCount: 5, totalSteps: 6, activeIndex: 5 });
+  });
+
+  it('resets every fold when the owl starts over', () => {
+    const engine = new OrigamiEngine(OWL_RECIPE, OWL_NAMED);
+    for (let step = 0; step < 8; step += 1) {
+      commitCurrent(engine);
+    }
+    expect(engine.isStepCommitted('owl-vertical-fold')).toBe(true);
+    expect(engine.isStepCommitted('owl-side-right')).toBe(true);
+    expect(engine.currentStep?.id).toBe('owl-hem');
+
+    engine.reset(OWL_RECIPE, OWL_NAMED);
+    expect(engine.currentStep?.id).toBe('owl-vertical-fold');
+    expect(engine.isStepCommitted('owl-vertical-fold')).toBe(false);
+    expect(engine.isStepCommitted('owl-hem')).toBe(false);
+    expect(engine.lockedCreases).toEqual([]);
+    expect(engine.progress()).toMatchObject({ committedCount: 0, totalSteps: 6, activeIndex: 0 });
+    expect(engine.fromSnapshot?.named?.L?.[0]).toBeLessThan(-0.1);
+    expect(engine.fromSnapshot?.named?.T?.[1]).toBeGreaterThan(0.1);
   });
 
   it('plays the decoration once from a single pinch', () => {

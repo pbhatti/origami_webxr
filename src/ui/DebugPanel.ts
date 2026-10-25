@@ -329,7 +329,7 @@ function draw(view: DebugPanelView): HTMLCanvasElement {
     line('bat commits', view.fold?.recipeId === 'origami-bat' ? view.fold.batCommits ?? '—' : '—'),
     line('bat valid', view.fold?.recipeId === 'origami-bat' ? view.fold.batValid ?? '—' : '—'),
     line('bat jump', 'alt+1..7'),
-    line('owl step', view.fold?.recipeId === 'origami-owl' ? `${view.fold.stage ?? '—'}/5  ${view.fold.stepId ?? '—'}` : '—'),
+    line('owl step', view.fold?.recipeId === 'origami-owl' ? `${view.fold.stage ?? '—'}/6  ${view.fold.stepId ?? '—'}` : '—'),
     line('owl crease', view.fold?.recipeId === 'origami-owl' ? view.fold.creaseId ?? '—' : '—'),
     line('owl ids', view.fold?.recipeId === 'origami-owl' ? view.fold.movingIds ?? '—' : '—'),
     line('owl angle', view.fold?.recipeId === 'origami-owl' ? `${view.fold.angleDeg?.toFixed(0)}/${view.fold.targetDeg?.toFixed(0)}` : '—'),

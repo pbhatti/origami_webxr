@@ -89,7 +89,7 @@ export class PaperStage {
   readonly owlPinch = new OwlPinch();
   private faceRevealMs = -1;
   private faceCommit = false;
-  private owlOpenConsumed = false;
+  private owlOpenStepId: string | null = null;
   readonly manipulator: CompletedOrigamiManipulator;
   readonly mover = new PaperMover();
   readonly engine = new OrigamiEngine(WHALE_RECIPE, WHALE_NAMED);
@@ -238,7 +238,7 @@ export class PaperStage {
     this.owlPinch.reset();
     this.faceRevealMs = -1;
     this.faceCommit = false;
-    this.owlOpenConsumed = false;
+    this.owlOpenStepId = null;
     this.sheet.group.position.set(0, 0, 0);
     this.sheet.group.rotation.set(0, 0, 0);
     this.sheet.group.scale.set(1, 1, 1);
@@ -456,7 +456,7 @@ export class PaperStage {
     this.owlPinch.reset();
     this.faceRevealMs = -1;
     this.faceCommit = false;
-    this.owlOpenConsumed = false;
+    this.owlOpenStepId = null;
     this.whaleCreature.stop();
     this.foxCreature.stop();
     this.batCreature.stop();
@@ -634,7 +634,7 @@ export class PaperStage {
 
   blocksGuidedTool(): boolean {
     const stepId = this.engine.currentStep?.id ?? null;
-    if (this.animalId === 'owl' && (stepId === 'owl-decorate' || stepId === 'owl-center-open' || this.owlPinch.visualState === 'playing')) {
+    if (this.animalId === 'owl' && (stepId === 'owl-decorate' || stepId?.endsWith('-open') || this.owlPinch.visualState === 'playing')) {
       return true;
     }
     const batStep = this.animalId === 'bat' ? stepId : null;
@@ -654,13 +654,14 @@ export class PaperStage {
   }
 
   consumeOwlOpen(): boolean {
-    if (this.animalId !== 'owl' || this.owlOpenConsumed || this.engine.isBusy()) {
+    const id = this.engine.currentStep?.id ?? null;
+    if (this.animalId !== 'owl' || this.engine.isBusy() || !id?.endsWith('-open')) {
       return false;
     }
-    if (this.engine.currentStep?.id !== 'owl-center-open') {
+    if (this.owlOpenStepId === id) {
       return false;
     }
-    this.owlOpenConsumed = true;
+    this.owlOpenStepId = id;
     return true;
   }
 
@@ -725,16 +726,16 @@ export class PaperStage {
   }
 
   prepareOwlStep(stage: number): number {
-    const target = Math.min(5, Math.max(1, Math.round(stage)));
+    const target = Math.min(6, Math.max(1, Math.round(stage)));
     this.owlPinch.reset();
-    this.owlOpenConsumed = false;
+    this.owlOpenStepId = null;
     this.owlCreature.stop();
     this.engine.reset(OWL_RECIPE, OWL_NAMED);
     let committed = 0;
     while (
       this.engine.currentStep &&
       (this.engine.currentStep.progressStage ?? 1) < target &&
-      committed < 12
+      committed < 16
     ) {
       this.engine.assistToTarget();
       for (let frame = 0; frame < 40 && this.engine.isAnimating(); frame += 1) {

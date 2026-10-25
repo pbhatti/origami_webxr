@@ -206,7 +206,7 @@ describe('origami bat recipe', () => {
   it('leaves whale and fox recipes untouched', () => {
     expect(WHALE_RECIPE.steps[0]?.id).toBe('diag-fold');
     expect(FOX_RECIPE.steps[0]?.id).toBe('fox-half');
-    expect(OWL_RECIPE.steps[0]?.id).toBe('owl-center-fold');
+    expect(OWL_RECIPE.steps[0]?.id).toBe('owl-vertical-fold');
     expect(validateRecipe(WHALE_RECIPE)).toEqual([]);
     expect(validateRecipe(FOX_RECIPE)).toEqual([]);
     expect(validateRecipe(OWL_RECIPE)).toEqual([]);

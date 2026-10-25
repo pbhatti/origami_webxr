@@ -1,4 +1,5 @@
 import {
+  BoxGeometry,
   Color,
   ConeGeometry,
   DoubleSide,
@@ -15,6 +16,7 @@ import {
   OWL_EYE_COLOR,
   OWL_EYE_X,
   OWL_EYE_Y,
+  OWL_FEATHER_YS,
   OWL_FEATURE_Z,
   OWL_FOOT_X,
   OWL_FOOT_Y,
@@ -36,14 +38,29 @@ function mat(color: string): MeshStandardMaterial {
 
 function eye(): Group {
   const group = new Group();
-  const ball = new Mesh(new SphereGeometry(0.011, 18, 14), mat(OWL_EYE_COLOR));
-  const pupil = new Mesh(new SphereGeometry(0.0042, 12, 10), mat(OWL_PUPIL_COLOR));
-  pupil.position.z = 0.008;
-  const lid = new Mesh(new SphereGeometry(0.0114, 14, 10), mat(OWL_PUPIL_COLOR));
+  const ball = new Mesh(new SphereGeometry(0.016, 20, 16), mat(OWL_EYE_COLOR));
+  const pupil = new Mesh(new SphereGeometry(0.0064, 14, 12), mat(OWL_PUPIL_COLOR));
+  pupil.position.z = 0.011;
+  const lid = new Mesh(new SphereGeometry(0.0166, 16, 12), mat(OWL_PUPIL_COLOR));
   lid.name = 'owl-lid';
   lid.scale.set(1.05, 0.22, 0.45);
-  lid.position.set(0, 0.006, 0.006);
+  lid.position.set(0, 0.008, 0.008);
   group.add(ball, pupil, lid);
+  return group;
+}
+
+function featherMark(y: number, index: number): Group {
+  const group = new Group();
+  group.name = `owl-feather-${index}`;
+  const bar = () => new Mesh(new BoxGeometry(0.02, 0.0034, 0.0012), mat(OWL_BEAK_COLOR));
+  const left = bar();
+  const right = bar();
+  left.position.set(-0.009, 0, 0);
+  right.position.set(0.009, 0, 0);
+  left.rotation.z = 0.62;
+  right.rotation.z = -0.62;
+  group.add(left, right);
+  group.position.set(0, y, OWL_FEATURE_Z + 0.001);
   return group;
 }
 
@@ -59,6 +76,7 @@ export class OwlCreature {
   private readonly leftEye: Group;
   private readonly rightEye: Group;
   private readonly beak: Mesh;
+  private readonly feathers: Group[];
   private readonly leftFoot: Mesh;
   private readonly rightFoot: Mesh;
   private elapsed = 0;
@@ -77,10 +95,11 @@ export class OwlCreature {
     this.rightEye = eye();
     this.leftEye.position.set(-OWL_EYE_X, OWL_EYE_Y, OWL_FEATURE_Z);
     this.rightEye.position.set(OWL_EYE_X, OWL_EYE_Y, OWL_FEATURE_Z);
-    this.beak = new Mesh(new ConeGeometry(0.008, 0.016, 4), mat(OWL_BEAK_COLOR));
+    this.beak = new Mesh(new ConeGeometry(0.007, 0.013, 3), mat(OWL_BEAK_COLOR));
     this.beak.rotation.x = Math.PI;
-    this.beak.rotation.y = Math.PI / 4;
+    this.beak.rotation.y = Math.PI / 6;
     this.beak.position.set(OWL_BEAK[0], OWL_BEAK[1], OWL_FEATURE_Z + 0.002);
+    this.feathers = OWL_FEATHER_YS.map((y, index) => featherMark(y, index));
     this.leftFoot = foot();
     this.rightFoot = foot();
     this.leftFoot.name = 'owl-foot-left';
@@ -89,7 +108,7 @@ export class OwlCreature {
     this.rightFoot.position.set(OWL_FOOT_X, OWL_FOOT_Y, OWL_FEATURE_Z);
     this.features.name = 'owl-features';
     this.features.visible = false;
-    this.features.add(this.leftEye, this.rightEye, this.beak, this.leftFoot, this.rightFoot);
+    this.features.add(this.leftEye, this.rightEye, this.beak, ...this.feathers, this.leftFoot, this.rightFoot);
     this.group.add(this.features);
   }
 
@@ -179,6 +198,9 @@ export class OwlCreature {
     this.features.rotation.z = Math.sin(this.elapsed * 0.8) * 0.08;
     this.leftFoot.rotation.z = Math.sin(this.elapsed * 6.5) * 0.35;
     this.rightFoot.rotation.z = -Math.sin(this.elapsed * 6.5 + 0.6) * 0.35;
+    this.feathers.forEach((feather, index) => {
+      feather.rotation.z = Math.sin(this.elapsed * 2.4 + index) * 0.05;
+    });
     const bob = Math.sin(this.elapsed * 1.5) * 0.008;
     const flutter = Math.sin(this.elapsed * 2.2) * 0.03;
     if (this.puppet) {
@@ -201,10 +223,14 @@ export class OwlCreature {
     const shown = this.reveal;
     const pop = 0.2 + 0.8 * (1 - (1 - Math.min(1, shown / 0.45)) ** 3);
     const beakPop = Math.min(1, Math.max(0, (shown - 0.28) / 0.4));
+    const featherPop = Math.min(1, Math.max(0, (shown - 0.42) / 0.4));
     const footPop = Math.min(1, Math.max(0, (shown - 0.5) / 0.5));
     this.leftEye.scale.setScalar(pop);
     this.rightEye.scale.setScalar(pop);
     this.beak.scale.setScalar(0.2 + 0.8 * beakPop);
+    for (const feather of this.feathers) {
+      feather.scale.setScalar(0.2 + 0.8 * featherPop);
+    }
     this.leftFoot.scale.set(1.15 * footPop, 0.55 * footPop, 0.7 * footPop);
     this.rightFoot.scale.set(1.15 * footPop, 0.55 * footPop, 0.7 * footPop);
     const drop = (1 - footPop) * 0.012;

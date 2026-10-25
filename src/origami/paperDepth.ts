@@ -743,8 +743,11 @@ function edgePointIsCut(
     ) {
       return false;
     }
-    // Same sheet continuing across a shared seam or a T-junction.
-    const meets = boundaryDistance(other, point) <= 0.0005;
+    // Same sheet continuing across a shared seam or a T-junction. The outward
+    // probe is EDGE_PROBE_M, and a sliver next to a vertex can leave the
+    // sample just outside the neighboring face by about that distance. That
+    // is still one sheet, not a free edge.
+    const meets = boundaryDistance(other, point) <= EDGE_PROBE_M + 0.0004;
     if (meets && !flapLiesAcross(other, point, outward)) {
       return false;
     }

@@ -3,7 +3,7 @@ import { FOLD_PAPER_COLOR, FoldPaper, deformFoldSnapshot } from '../../src/origa
 import { BAT_RECIPE } from '../../src/origami/recipes/bat.recipe.ts';
 import { HALF_FOLD_RECIPE } from '../../src/origami/recipes/fixture-half-fold.ts';
 import { FOX_RECIPE } from '../../src/origami/recipes/fox.recipe.ts';
-import { OWL_RECIPE } from '../../src/origami/recipes/owl.recipe.ts';
+import { OWL_LEFT_DIAGONAL, OWL_RECIPE, OWL_RIGHT_DIAGONAL } from '../../src/origami/recipes/owl.recipe.ts';
 import { WHALE_RECIPE } from '../../src/origami/recipes/whale.recipe.ts';
 import {
   PAPER_EDGE_WIDTH_M,
@@ -383,6 +383,15 @@ describe('folded paper depth', () => {
     expect(mesh.groups.some((group) => group.materialIndex === 2 && group.count > 0)).toBe(true);
   });
 
+  it('does not outline the owl diamond vertex under the forehead split', () => {
+    const topped = OWL_RECIPE.snapshots.topped;
+    expect(topped).toBeTruthy();
+    const mesh = buildPaperMesh(topped!, false);
+    expect(edgeVerticesNear(mesh, [0, 0, 0], 0.004)).toBe(0);
+    expect(edgeVerticesNear(mesh, [0.01, 0.05, 0], 0.004)).toBe(0);
+    expect(borderCoversPoint(mesh, [0, topped!.named?.T?.[1] ?? 0.094, 0], 0.002)).toBe(true);
+  });
+
   it('does not outline a T-junction across a continuous sheet', () => {
     const sheet = layered(
       [
@@ -523,35 +532,15 @@ function distanceToTriangle(point: Vec3, triangle: Vec3[]): number {
   );
 }
 
-function wingDiagonalSamples(snapshot: MeshSnapshot): Vec3[] {
+function wingDiagonalSamples(_snapshot: MeshSnapshot): Vec3[] {
   const samples: Vec3[] = [];
-  for (const face of snapshot.faces) {
-    if (face.layer < 1) {
-      continue;
-    }
-    const poly = face.vertices.flatMap((index) => {
-      const point = snapshot.vertices[index];
-      return point ? [point] : [];
-    });
-    for (let index = 0; index < poly.length; index += 1) {
-      const start = poly[index];
-      const end = poly[(index + 1) % poly.length];
-      if (!start || !end) {
-        continue;
-      }
-      const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
-      const midX = (start[0] + end[0]) / 2;
-      const midY = (start[1] + end[1]) / 2;
-      if (length < 0.12 || Math.abs(Math.abs(midX) - 0.015) > 0.01 || Math.abs(midY - 0.035) > 0.015) {
-        continue;
-      }
-      for (const t of [0.2, 0.8]) {
-        samples.push([
-          start[0] + (end[0] - start[0]) * t,
-          start[1] + (end[1] - start[1]) * t,
-          0,
-        ]);
-      }
+  for (const [start, end] of [OWL_LEFT_DIAGONAL, OWL_RIGHT_DIAGONAL]) {
+    for (const t of [0.28, 0.72]) {
+      samples.push([
+        start[0] + (end[0] - start[0]) * t,
+        start[1] + (end[1] - start[1]) * t,
+        0,
+      ]);
     }
   }
   return samples;
