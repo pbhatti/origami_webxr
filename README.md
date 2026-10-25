@@ -8,6 +8,7 @@ Headset features are **unverified** until you record results in `docs/device-tes
 
 ## What this build does
 
+- Playable creations: Whale, Fox, Bat, Owl, and Turtle. Turtle starts as a leaf-green square and folds into a triangular shell with a paper head.
 - 20 cm world-stable orange diamond, Welcome / Start Session / Recenter / Restart / Replay
 - Custom pinch (joints, not IWSDK grabbing). Controllers are not the product input
 - Six stages: half-fold, unfold + two kite folds, body, head, tail, set silhouette

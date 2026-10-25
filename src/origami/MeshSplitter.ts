@@ -266,6 +266,9 @@ export function classifyMovingFaces(
     if (side < 0) {
       continue;
     }
+    if (hinge.minMovingLayer != null && face.layer < hinge.minMovingLayer) {
+      continue;
+    }
     if (packet && originalFixed.has(face.originalId)) {
       continue;
     }

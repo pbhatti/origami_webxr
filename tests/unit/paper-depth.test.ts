@@ -16,6 +16,7 @@ import { origamiPaperMaterial, paperLightness } from '../../src/origami/OrigamiP
 import { BAT_PAPER_COLOR } from '../../src/origami/recipes/bat.recipe.ts';
 import { FOX_PAPER_COLOR } from '../../src/origami/recipes/fox.recipe.ts';
 import { OWL_PAPER_COLOR } from '../../src/origami/recipes/owl.recipe.ts';
+import { TURTLE_PAPER_COLOR, TURTLE_RECIPE } from '../../src/origami/recipes/turtle.recipe.ts';
 import type { MeshSnapshot, Vec3 } from '../../src/origami/types.ts';
 
 function triangle(layer: number, indexOffset = 0): MeshSnapshot['faces'][number] {
@@ -452,6 +453,7 @@ describe('folded paper depth', () => {
       ['whale', WHALE_RECIPE.snapshots.whale, WHALE_RECIPE.finalSilhouette],
       ['fox', FOX_RECIPE.snapshots.fox, FOX_RECIPE.finalSilhouette],
       ['owl', OWL_RECIPE.snapshots.owl, OWL_RECIPE.finalSilhouette],
+      ['turtle', TURTLE_RECIPE.snapshots.turtle, TURTLE_RECIPE.finalSilhouette],
       ['bat', BAT_RECIPE.snapshots.faced, BAT_RECIPE.finalSilhouette],
     ];
     for (const [name, snapshot, silhouette] of finished) {
@@ -465,7 +467,7 @@ describe('folded paper depth', () => {
   });
 
   it('gives every character two paper tones within about 10–20%', () => {
-    for (const front of [FOLD_PAPER_COLOR, FOX_PAPER_COLOR, BAT_PAPER_COLOR, OWL_PAPER_COLOR, '#6eb0d4']) {
+    for (const front of [FOLD_PAPER_COLOR, FOX_PAPER_COLOR, BAT_PAPER_COLOR, OWL_PAPER_COLOR, TURTLE_PAPER_COLOR, '#6eb0d4']) {
       const spec = origamiPaperMaterial(front);
       const delta = paperLightness(spec.backColor) - paperLightness(spec.frontColor);
       expect(delta).toBeGreaterThan(0.1);

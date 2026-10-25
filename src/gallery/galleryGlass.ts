@@ -1,4 +1,5 @@
-import { CanvasTexture, LinearFilter, MeshBasicMaterial, SRGBColorSpace } from 'three';
+import { CanvasTexture, LinearFilter, SRGBColorSpace } from 'three';
+import type { MeshBasicMaterial } from 'three';
 import { FONT_SANS, theme, themeMaterial } from '../theme/tokens.ts';
 import type { AnimalId } from './animals.ts';
 
@@ -11,6 +12,7 @@ const CARD_GRADIENTS: Record<AnimalId, readonly [string, string]> = {
   fox: ['#fff3ea', '#ffd4b4'],
   bat: ['#f6f0fa', '#e4d4f0'],
   owl: ['#f4faf3', '#d5ecd3'],
+  turtle: ['#f3f8ea', '#dcecc4'],
   rabbit: ['#f7f3ef', '#e7ddd5'],
   elephant: ['#f4f0eb', '#e4d8ce'],
   bird: ['#f8f4ef', '#eadfd4'],

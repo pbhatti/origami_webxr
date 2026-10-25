@@ -16,6 +16,17 @@ import { createPaperMaterials, origamiPaperMaterial } from '../origami/OrigamiPa
 import { PAPER_DEPTH, buildPaperMesh, type PaperMeshBuffers } from '../origami/paperDepth.ts';
 import { BAT_PAPER_COLOR, BAT_RECIPE } from '../origami/recipes/bat.recipe.ts';
 import { OWL_BEAK_COLOR, OWL_EYE_COLOR, OWL_PAPER_COLOR, OWL_PUPIL_COLOR } from '../origami/recipes/owl.recipe.ts';
+import {
+  TURTLE_EYE,
+  TURTLE_HEX_RADIUS,
+  TURTLE_EYE_COLOR,
+  TURTLE_EYE_HIGHLIGHT,
+  TURTLE_PAPER_COLOR,
+  TURTLE_RECIPE,
+  TURTLE_SHELL_ALT,
+  TURTLE_CREAM,
+  turtleShellHexes,
+} from '../origami/recipes/turtle.recipe.ts';
 import { FOX_PAPER_COLOR, FOX_RECIPE } from '../origami/recipes/fox.recipe.ts';
 import { WHALE_RECIPE } from '../origami/recipes/whale.recipe.ts';
 import type { MeshSnapshot } from '../origami/types.ts';
@@ -271,6 +282,49 @@ function batModel(): Group {
   return fit(root);
 }
 
+function turtlePreviewHex(radius: number): BufferGeometry {
+  const positions: number[] = [];
+  for (let i = 0; i < 6; i += 1) {
+    const a0 = (Math.PI / 3) * i + Math.PI / 6;
+    const a1 = (Math.PI / 3) * (i + 1) + Math.PI / 6;
+    positions.push(0, 0, 0.008, Math.cos(a0) * radius, Math.sin(a0) * radius, 0.008, Math.cos(a1) * radius, Math.sin(a1) * radius, 0.008);
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function turtleModel(): Group {
+  const group = snapshotModel('turtle', TURTLE_RECIPE.snapshots.turtle, TURTLE_PAPER_COLOR);
+  const decor = new Group();
+  decor.rotation.x = -0.18;
+  const cream = turtlePreviewHex(TURTLE_HEX_RADIUS * 0.98);
+  const leaf = turtlePreviewHex(TURTLE_HEX_RADIUS * 0.8);
+  const alt = turtlePreviewHex(TURTLE_HEX_RADIUS * 0.8);
+  const creamMat = paperMat(TURTLE_CREAM);
+  const leafMat = paperMat(TURTLE_PAPER_COLOR);
+  const altMat = paperMat(TURTLE_SHELL_ALT);
+  for (const mark of turtleShellHexes()) {
+    const ring = new Mesh(cream, creamMat);
+    const fill = new Mesh(mark.alt ? alt : leaf, mark.alt ? altMat : leafMat);
+    ring.position.set(mark.x, mark.y, 0);
+    fill.position.set(mark.x, mark.y, 0.001);
+    decor.add(ring, fill);
+  }
+  const eyeMat = paperMat(TURTLE_EYE_COLOR);
+  const highlightMat = paperMat(TURTLE_EYE_HIGHLIGHT);
+  const eye = new Mesh(new SphereGeometry(0.008, 14, 12), eyeMat);
+  const pupil = new Mesh(new SphereGeometry(0.0032, 10, 8), paperMat('#0c0b09'));
+  const highlight = new Mesh(new SphereGeometry(0.0016, 8, 8), highlightMat);
+  eye.position.set(TURTLE_EYE[0], TURTLE_EYE[1], 0.016);
+  pupil.position.set(TURTLE_EYE[0], TURTLE_EYE[1], 0.022);
+  highlight.position.set(TURTLE_EYE[0] + 0.002, TURTLE_EYE[1] + 0.002, 0.024);
+  decor.add(eye, pupil, highlight);
+  group.add(decor);
+  return group;
+}
+
 function owlModel(): Group {
   const group = new Group();
   group.add(
@@ -314,6 +368,7 @@ const BUILDERS: Record<AnimalId, (color: string) => Group> = {
   fox: () => foxModel(),
   bat: () => batModel(),
   owl: () => owlModel(),
+  turtle: () => turtleModel(),
   rabbit: (color) =>
     poly(color, [
       triangle(-0.03, -0.02, 0.03, -0.02, 0, 0.03),

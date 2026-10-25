@@ -193,6 +193,7 @@ export class App {
           moveHandle: this.stage.getMoveHandle(),
           cutter: this.stage.cutter,
           owlPinch: this.stage.owlPinch,
+          turtlePinch: this.stage.turtlePinch,
           mover: this.stage.mover,
           indicators: this.indicators,
           debugPanel: this.debugPanel,
@@ -868,6 +869,8 @@ export class App {
     if (snapshot.cutPulse) {
       if (this.stage.activeAnimal === 'owl') {
         this.stage.beginOwlLife();
+      } else if (this.stage.activeAnimal === 'turtle') {
+        this.stage.beginTurtleLife();
       } else {
         this.stage.cutter.begin();
       }
@@ -877,6 +880,10 @@ export class App {
       this.enterSnapFromFold(true);
     }
     if (!engine.isBusy() && this.stage.consumeOwlCommit()) {
+      engine.assistToTarget();
+      this.enterSnapFromFold(true);
+    }
+    if (!engine.isBusy() && this.stage.consumeTurtleCommit()) {
       engine.assistToTarget();
       this.enterSnapFromFold(true);
     }
@@ -1103,6 +1110,11 @@ export class App {
       const stage = Number(event.code.slice(5));
       if (this.stage.activeAnimal === 'owl' && stage <= 5) {
         this.stage.prepareOwlStep(stage);
+        if (this.machine.state !== 'INSTRUCTION') {
+          this.machine.force('INSTRUCTION');
+        }
+      } else if (this.stage.activeAnimal === 'turtle' && stage <= 6) {
+        this.stage.prepareTurtleStep(stage);
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
         }

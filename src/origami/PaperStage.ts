@@ -12,6 +12,7 @@ import {
 } from 'three';
 import { BatCreature } from '../animation/BatCreature.ts';
 import { OwlCreature } from '../animation/OwlCreature.ts';
+import { TurtleCreature } from '../animation/TurtleCreature.ts';
 import { CompletedOrigamiManipulator } from '../animation/CompletedOrigamiManipulator.ts';
 import { FoxCreature } from '../animation/FoxCreature.ts';
 import { WhaleCreature } from '../animation/WhaleCreature.ts';
@@ -46,9 +47,11 @@ import { FOX_SHAPE_INSPECTOR } from './foxFinalShape.ts';
 import { validateBatGeometry } from './batFinalShape.ts';
 import { BAT_NAMED, BAT_PAPER_COLOR, BAT_RECIPE } from './recipes/bat.recipe.ts';
 import { OwlPinch } from './OwlPinch.ts';
+import { TurtlePinch } from './TurtlePinch.ts';
 import { ScissorsCut } from './ScissorsCut.ts';
 import { FOX_NAMED, FOX_PAPER_COLOR, FOX_RECIPE } from './recipes/fox.recipe.ts';
 import { OWL_NAMED, OWL_PAPER_COLOR, OWL_RECIPE } from './recipes/owl.recipe.ts';
+import { TURTLE_NAMED, TURTLE_PAPER_COLOR, TURTLE_RECIPE } from './recipes/turtle.recipe.ts';
 import { theme } from '../theme/tokens.ts';
 import { WHALE_NAMED, WHALE_RECIPE } from './recipes/whale.recipe.ts';
 
@@ -85,8 +88,10 @@ export class PaperStage {
   readonly foxCreature = new FoxCreature();
   readonly batCreature = new BatCreature();
   readonly owlCreature = new OwlCreature();
+  readonly turtleCreature = new TurtleCreature();
   readonly cutter = new ScissorsCut();
   readonly owlPinch = new OwlPinch();
+  readonly turtlePinch = new TurtlePinch();
   private faceRevealMs = -1;
   private faceCommit = false;
   private owlOpenStepId: string | null = null;
@@ -103,7 +108,7 @@ export class PaperStage {
   private boundRootId: string;
   readonly feedback: FoldFeedbackController;
 
-  get creature(): WhaleCreature | FoxCreature | BatCreature | OwlCreature {
+  get creature(): WhaleCreature | FoxCreature | BatCreature | OwlCreature | TurtleCreature {
     if (this.animalId === 'fox') {
       return this.foxCreature;
     }
@@ -112,6 +117,9 @@ export class PaperStage {
     }
     if (this.animalId === 'owl') {
       return this.owlCreature;
+    }
+    if (this.animalId === 'turtle') {
+      return this.turtleCreature;
     }
     return this.whaleCreature;
   }
@@ -143,6 +151,7 @@ export class PaperStage {
     this.sheet.group.add(this.foxShape.group);
     this.cutter.attach(this.sheet.group);
     this.owlPinch.attach(this.sheet.group);
+    this.turtlePinch.attach(this.sheet.group);
     this.scaleRoot.add(this.sheet.group);
     this.paperRoot.add(
       this.scaleRoot,
@@ -187,6 +196,7 @@ export class PaperStage {
     world.scene.add(this.foxCreature.group);
     world.scene.add(this.batCreature.group);
     world.scene.add(this.owlCreature.group);
+    world.scene.add(this.turtleCreature.group);
 
     this.unsubscribe = world.visibilityState.subscribe((state) => {
       this.studio.visible = state === VisibilityState.NonImmersive;
@@ -234,8 +244,10 @@ export class PaperStage {
     this.foxCreature.stop();
     this.batCreature.stop();
     this.owlCreature.stop();
+    this.turtleCreature.stop();
     this.cutter.reset();
     this.owlPinch.reset();
+    this.turtlePinch.reset();
     this.faceRevealMs = -1;
     this.faceCommit = false;
     this.owlOpenStepId = null;
@@ -251,6 +263,9 @@ export class PaperStage {
     } else if (id === 'owl') {
       this.engine.reset(OWL_RECIPE, OWL_NAMED);
       this.sheet.setColor(OWL_PAPER_COLOR);
+    } else if (id === 'turtle') {
+      this.engine.reset(TURTLE_RECIPE, TURTLE_NAMED);
+      this.sheet.setColor(TURTLE_PAPER_COLOR);
     } else {
       this.engine.reset(WHALE_RECIPE, WHALE_NAMED);
       this.sheet.setColor(FOLD_PAPER_COLOR);
@@ -454,6 +469,7 @@ export class PaperStage {
     }
     this.cutter.reset();
     this.owlPinch.reset();
+    this.turtlePinch.reset();
     this.faceRevealMs = -1;
     this.faceCommit = false;
     this.owlOpenStepId = null;
@@ -461,6 +477,7 @@ export class PaperStage {
     this.foxCreature.stop();
     this.batCreature.stop();
     this.owlCreature.stop();
+    this.turtleCreature.stop();
     this.manipulator.sleep();
   }
 
@@ -548,6 +565,7 @@ export class PaperStage {
     this.syncFoxPresentation();
     this.syncBatPresentation();
     this.syncOwlPresentation();
+    this.syncTurtlePresentation();
   }
 
   commitProgress(): void {
@@ -590,9 +608,11 @@ export class PaperStage {
     this.exitConfirm.face(_position);
     this.cutter.sync(this.animalId === 'bat' ? this.engine.currentStep?.id ?? null : null);
     this.owlPinch.sync(this.animalId === 'owl' ? this.engine.currentStep?.id ?? null : null);
+    this.turtlePinch.sync(this.animalId === 'turtle' ? this.engine.currentStep?.id ?? null : null);
     if (!this.exitPrompt) {
       this.cutter.tick(1000 / 72);
       this.owlPinch.tick(1000 / 72);
+      this.turtlePinch.tick(1000 / 72);
       this.tickFaceReveal(1000 / 72);
     }
     this.guides.tick(1 / 72, this.guideState(this.engine.enginePhase === 'folding'));
@@ -607,6 +627,7 @@ export class PaperStage {
     this.syncFoxPresentation();
     this.syncBatPresentation();
     this.syncOwlPresentation();
+    this.syncTurtlePresentation();
   }
 
   dispose(): void {
@@ -617,6 +638,7 @@ export class PaperStage {
     this.foxCreature.stop();
     this.batCreature.stop();
     this.owlCreature.stop();
+    this.turtleCreature.stop();
     this.manipulator.dispose();
     disposeObject3D(this.studio);
     disposeObject3D(this.paperRoot);
@@ -624,17 +646,25 @@ export class PaperStage {
     disposeObject3D(this.foxCreature.group);
     disposeObject3D(this.batCreature.group);
     disposeObject3D(this.owlCreature.group);
+    disposeObject3D(this.turtleCreature.group);
     this.studio.removeFromParent();
     this.paperRoot.removeFromParent();
     this.whaleCreature.group.removeFromParent();
     this.foxCreature.group.removeFromParent();
     this.batCreature.group.removeFromParent();
     this.owlCreature.group.removeFromParent();
+    this.turtleCreature.group.removeFromParent();
   }
 
   blocksGuidedTool(): boolean {
     const stepId = this.engine.currentStep?.id ?? null;
     if (this.animalId === 'owl' && (stepId === 'owl-decorate' || stepId?.endsWith('-open') || this.owlPinch.visualState === 'playing')) {
+      return true;
+    }
+    if (
+      this.animalId === 'turtle' &&
+      (stepId === 'turtle-decorate' || stepId?.endsWith('-open') || this.turtlePinch.visualState === 'playing')
+    ) {
       return true;
     }
     const batStep = this.animalId === 'bat' ? stepId : null;
@@ -655,7 +685,7 @@ export class PaperStage {
 
   consumeOwlOpen(): boolean {
     const id = this.engine.currentStep?.id ?? null;
-    if (this.animalId !== 'owl' || this.engine.isBusy() || !id?.endsWith('-open')) {
+    if ((this.animalId !== 'owl' && this.animalId !== 'turtle') || this.engine.isBusy() || !id?.endsWith('-open')) {
       return false;
     }
     if (this.owlOpenStepId === id) {
@@ -674,6 +704,17 @@ export class PaperStage {
 
   beginOwlLife(): boolean {
     return this.owlPinch.begin();
+  }
+
+  consumeTurtleCommit(): boolean {
+    if (this.animalId !== 'turtle' || this.engine.isBusy() || this.engine.currentStep?.id !== 'turtle-decorate') {
+      return false;
+    }
+    return this.turtlePinch.consumeCommit();
+  }
+
+  beginTurtleLife(): boolean {
+    return this.turtlePinch.begin();
   }
 
   owlDebug(): { sides: string; decor: string } {
@@ -731,6 +772,30 @@ export class PaperStage {
     this.owlOpenStepId = null;
     this.owlCreature.stop();
     this.engine.reset(OWL_RECIPE, OWL_NAMED);
+    let committed = 0;
+    while (
+      this.engine.currentStep &&
+      (this.engine.currentStep.progressStage ?? 1) < target &&
+      committed < 16
+    ) {
+      this.engine.assistToTarget();
+      for (let frame = 0; frame < 40 && this.engine.isAnimating(); frame += 1) {
+        this.engine.tick(32);
+      }
+      this.commitProgress();
+      committed += 1;
+    }
+    this.applyFoldVisuals(false);
+    this.commitProgress();
+    return committed;
+  }
+
+  prepareTurtleStep(stage: number): number {
+    const target = Math.min(6, Math.max(1, Math.round(stage)));
+    this.turtlePinch.reset();
+    this.owlOpenStepId = null;
+    this.turtleCreature.stop();
+    this.engine.reset(TURTLE_RECIPE, TURTLE_NAMED);
     let committed = 0;
     while (
       this.engine.currentStep &&
@@ -812,6 +877,24 @@ export class PaperStage {
     this.owlCreature.present(this.sheet.group, showing);
     if (!this.owlCreature.active) {
       this.owlCreature.setReveal(this.owlPinch.progress);
+    }
+  }
+
+  private syncTurtlePresentation(): void {
+    if (this.animalId !== 'turtle') {
+      if (!this.turtleCreature.active) {
+        this.turtleCreature.present(this.sheet.group, false);
+      }
+      return;
+    }
+    const showing =
+      this.turtlePinch.visualState === 'playing' ||
+      this.turtlePinch.visualState === 'done' ||
+      this.engine.isComplete() ||
+      this.turtleCreature.active;
+    this.turtleCreature.present(this.sheet.group, showing);
+    if (!this.turtleCreature.active) {
+      this.turtleCreature.setReveal(this.turtlePinch.progress);
     }
   }
 

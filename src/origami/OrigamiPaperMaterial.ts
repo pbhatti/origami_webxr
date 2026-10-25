@@ -19,6 +19,10 @@ export interface OrigamiPaperMaterial {
 export const FOLD_PAPER_COLOR = '#e24a1a';
 export const MOUSE_PAPER_COLOR = '#6eb0d4';
 
+const EXACT: Record<string, { back: string; edge: string }> = {
+  '#91c943': { back: '#b7df7a', edge: '#648c38' },
+};
+
 const DESIGNED: Array<{ front: string; edgeHue: number }> = [
   { front: FOLD_PAPER_COLOR, edgeHue: 12 },
   { front: '#d9782f', edgeHue: -10 },
@@ -30,6 +34,16 @@ const DESIGNED: Array<{ front: string; edgeHue: number }> = [
 /** Two paper sides about 16% apart, plus a darker accent shifted a little around the wheel. */
 export function origamiPaperMaterial(frontColor: string): OrigamiPaperMaterial {
   const front = normalizeHex(frontColor);
+  const exact = EXACT[front];
+  if (exact) {
+    return {
+      frontColor: front,
+      backColor: exact.back,
+      edgeColor: exact.edge,
+      paperThickness: PAPER_THICKNESS_M,
+      edgeWidth: PAPER_EDGE_WIDTH_M,
+    };
+  }
   const designed = DESIGNED.find((entry) => entry.front === front);
   const edgeHue = designed?.edgeHue ?? 18;
   return {

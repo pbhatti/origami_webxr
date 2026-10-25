@@ -28,6 +28,11 @@ export interface HingeDefinition {
   movingFaces: string[];
   /** `packet` folds every stacked layer on the moving half-plane about one hinge. */
   layerMode?: FoldLayerMode;
+  /**
+   * When set, faces below this layer stay put even if they lie on the moving
+   * side of the hinge. Used when a small flap sits on top of a larger sheet.
+   */
+  minMovingLayer?: number;
 }
 
 export interface CoupledHinge extends HingeDefinition {

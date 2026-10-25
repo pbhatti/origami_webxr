@@ -54,6 +54,11 @@ export interface HandInteractionHandlers {
     raycast(origin: Vector3, direction: Vector3): boolean;
     setHover(hovered: boolean): void;
   };
+  turtlePinch?: {
+    contains(worldPoint: Vector3): boolean;
+    raycast(origin: Vector3, direction: Vector3): boolean;
+    setHover(hovered: boolean): void;
+  };
   mover: PaperMover;
   indicators: HandIndicators;
   debugPanel: DebugPanel;
@@ -289,16 +294,25 @@ export function createHandInteractionSystem(handlers: HandInteractionHandlers) {
       const rightRayHandle = Boolean(rightAim?.hit);
       const cutter = handlers.cutter;
       const owlPinch = handlers.owlPinch;
+      const turtlePinch = handlers.turtlePinch;
+      const hitsPinch = (
+        pinch: { contains(worldPoint: Vector3): boolean; raycast(origin: Vector3, direction: Vector3): boolean } | undefined,
+        world: Vector3 | null,
+        aim: { origin: Vector3; direction: Vector3 } | null,
+      ) => Boolean(pinch && ((world && pinch.contains(world)) || (aim && pinch.raycast(aim.origin, aim.direction))));
       const leftCut = Boolean(
         (cutter && ((leftWorld && cutter.contains(leftWorld)) || (leftAim && cutter.raycast(leftAim.origin, leftAim.direction)))) ||
-          (owlPinch && ((leftWorld && owlPinch.contains(leftWorld)) || (leftAim && owlPinch.raycast(leftAim.origin, leftAim.direction)))),
+          hitsPinch(owlPinch, leftWorld, leftAim) ||
+          hitsPinch(turtlePinch, leftWorld, leftAim),
       );
       const rightCut = Boolean(
         (cutter && ((rightWorld && cutter.contains(rightWorld)) || (rightAim && cutter.raycast(rightAim.origin, rightAim.direction)))) ||
-          (owlPinch && ((rightWorld && owlPinch.contains(rightWorld)) || (rightAim && owlPinch.raycast(rightAim.origin, rightAim.direction)))),
+          hitsPinch(owlPinch, rightWorld, rightAim) ||
+          hitsPinch(turtlePinch, rightWorld, rightAim),
       );
       cutter?.setHover(leftCut || rightCut);
       owlPinch?.setHover(leftCut || rightCut);
+      turtlePinch?.setHover(leftCut || rightCut);
 
       const snapshot = handlers.session.update({
         nowMs,

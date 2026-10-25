@@ -54,6 +54,7 @@ export const COPY = {
     body: 'Your creation is ready to play!',
     bat: 'Your little bat is ready to fly!',
     owl: 'Your little owl is ready to play!',
+    turtle: 'Your little turtle is ready to play!',
     again: 'Fold Again',
     explore: 'Explore More',
   },
@@ -64,7 +65,7 @@ export const PRODUCT_TAGLINE = COPY.product.tagline;
 export const PRODUCT_SENTENCE = COPY.product.description;
 
 export const HELP_COPY =
-  'After Enter AR, pinch a gallery card. Whale, Fox, Bat, and Owl launch guided folds. Other creations show Coming Soon. Explore returns to the gallery without losing fold progress. Pinch the highlight to fold. Pinch Move to reposition the sheet. Debug + A assists. Debug + G toggles the gallery.';
+  'After Enter AR, pinch a gallery card. Whale, Fox, Bat, Owl, and Turtle launch guided folds. Other creations show Coming Soon. Explore returns to the gallery without losing fold progress. Pinch the highlight to fold. Pinch Move to reposition the sheet. Debug + A assists. Debug + G toggles the gallery.';
 
 export function completionBodyFor(animalId: string): string {
   if (animalId === 'bat') {
@@ -72,6 +73,9 @@ export function completionBodyFor(animalId: string): string {
   }
   if (animalId === 'owl') {
     return COPY.completion.owl;
+  }
+  if (animalId === 'turtle') {
+    return COPY.completion.turtle;
   }
   return COPY.completion.body;
 }
@@ -108,7 +112,7 @@ export function capabilityBody(report: XRCapabilityReport | null): string {
 
 export function handTrackingHint(handTracking: boolean | 'unknown', sessionActive: boolean): string {
   if (!sessionActive) {
-    return 'Start Folding, then pinch a creation card. Whale, Fox, Bat, and Owl are playable; other cards are Coming Soon. On desktop, click and drag.';
+    return 'Start Folding, then pinch a creation card. Whale, Fox, Bat, Owl, and Turtle are playable; other cards are Coming Soon. On desktop, click and drag.';
   }
   if (handTracking === true) {
     return 'Hand tracking granted. Pinch the highlight and fold along the dotted line. Your folding journey fills as each fold locks in.';
