@@ -352,29 +352,71 @@ describe('folded paper depth', () => {
       ],
     );
     const mesh = buildPaperMesh(covered, false);
-    const coverBack = 2 * PAPER_LAYER_GAP_M;
-    let revealed = 0;
-    const group = mesh.groups.find((entry) => entry.materialIndex === 2);
-    const start = (group?.start ?? 0) * 3;
-    const end = start + (group?.count ?? 0) * 3;
-    for (let index = start; index < end; index += 3) {
-      const x = mesh.positions[index] ?? 0;
-      const y = mesh.positions[index + 1] ?? 0;
-      const z = mesh.positions[index + 2] ?? 0;
-      const insideCover = contains([
-        [0.02, 0.012, 0],
-        [0.1, 0.012, 0],
-        [0.06, 0.078, 0],
-      ], x, y) && distanceToEdges([
-        [0.02, 0.012, 0],
-        [0.1, 0.012, 0],
-        [0.06, 0.078, 0],
-      ], x, y) > PAPER_EDGE_WIDTH_M + 0.001;
-      if (insideCover && z > coverBack - 0.00005) {
-        revealed += 1;
+    const cover: Vec3[] = [
+      [0.02, 0.012, 0],
+      [0.1, 0.012, 0],
+      [0.06, 0.078, 0],
+    ];
+    expect(edgeVerticesInside(mesh, cover, PAPER_EDGE_WIDTH_M + 0.001)).toBe(0);
+    expect(edgeVerticesInside(mesh, [
+      [0.035, 0.025, 0],
+      [0.085, 0.025, 0],
+      [0.06, 0.055, 0],
+    ], 0.001)).toBe(0);
+  });
+
+  it('does not outline a seam where two triangles are one sheet', () => {
+    const sheet = layered(
+      [
+        [0, 0, 0],
+        [0.1, 0, 0],
+        [0.1, 0.08, 0],
+        [0, 0.08, 0],
+      ],
+      [
+        ['lower', [0, 1, 2], 0],
+        ['upper', [0, 2, 3], 0],
+      ],
+    );
+    const mesh = buildPaperMesh(sheet, false);
+    expect(edgeVerticesNear(mesh, [0.05, 0.04, 0], 0.006)).toBe(0);
+    expect(mesh.groups.some((group) => group.materialIndex === 2 && group.count > 0)).toBe(true);
+  });
+
+  it('does not outline a T-junction across a continuous sheet', () => {
+    const sheet = layered(
+      [
+        [0, 0, 0],
+        [0.1, 0, 0],
+        [0.05, -0.06, 0],
+        [0.05, 0, 0],
+        [0.05, 0.05, 0],
+      ],
+      [
+        ['below', [0, 1, 2], 0],
+        ['above-left', [0, 3, 4], 0],
+        ['above-right', [3, 1, 4], 0],
+      ],
+    );
+    const mesh = buildPaperMesh(sheet, false);
+    expect(edgeVerticesNear(mesh, [0.05, 0, 0], 0.0025)).toBe(0);
+  });
+
+  it('drops borders buried inside a higher sheet on the finished animals', () => {
+    const finished: Array<[string, MeshSnapshot | undefined, Vec3[] | undefined]> = [
+      ['whale', WHALE_RECIPE.snapshots.whale, WHALE_RECIPE.finalSilhouette],
+      ['fox', FOX_RECIPE.snapshots.fox, FOX_RECIPE.finalSilhouette],
+      ['owl', OWL_RECIPE.snapshots.owl, OWL_RECIPE.finalSilhouette],
+      ['bat', BAT_RECIPE.snapshots.faced, BAT_RECIPE.finalSilhouette],
+    ];
+    for (const [name, snapshot, silhouette] of finished) {
+      expect(snapshot, name).toBeTruthy();
+      const mesh = buildPaperMesh(snapshot!, false);
+      expect(bordersUnderHigherFace(snapshot!, mesh), name).toBe(0);
+      if (silhouette && silhouette.length >= 2) {
+        expect(edgeVerticesNearPolyline(mesh, silhouette, 0.004), name).toBeGreaterThan(0);
       }
     }
-    expect(revealed).toBe(0);
   });
 
   it('gives every character two paper tones within about 10–20%', () => {
@@ -406,6 +448,59 @@ function groupZs(mesh: PaperMeshBuffers, materialIndex: number): { min: number; 
     sum += z;
   }
   return { min, max, mean: sum / group.count, count: group.count };
+}
+
+function edgeVertices(mesh: PaperMeshBuffers): Vec3[] {
+  const group = mesh.groups.find((entry) => entry.materialIndex === 2);
+  if (!group) {
+    return [];
+  }
+  const points: Vec3[] = [];
+  for (let vertex = 0; vertex < group.count; vertex += 1) {
+    const offset = (group.start + vertex) * 3;
+    points.push([
+      mesh.positions[offset] ?? 0,
+      mesh.positions[offset + 1] ?? 0,
+      mesh.positions[offset + 2] ?? 0,
+    ]);
+  }
+  return points;
+}
+
+function edgeVerticesInside(mesh: PaperMeshBuffers, poly: Vec3[], margin: number): number {
+  return edgeVertices(mesh).filter((point) => contains(poly, point[0], point[1]) && distanceToEdges(poly, point[0], point[1]) > margin).length;
+}
+
+function edgeVerticesNear(mesh: PaperMeshBuffers, point: Vec3, radius: number): number {
+  return edgeVertices(mesh).filter((vertex) => Math.hypot(vertex[0] - point[0], vertex[1] - point[1], vertex[2] - point[2]) <= radius).length;
+}
+
+function edgeVerticesNearPolyline(mesh: PaperMeshBuffers, line: Vec3[], radius: number): number {
+  return edgeVertices(mesh).filter((point) => distanceToEdges(line, point[0], point[1]) <= radius).length;
+}
+
+function bordersUnderHigherFace(snapshot: MeshSnapshot, mesh: PaperMeshBuffers): number {
+  const faces = snapshot.faces.flatMap((face) => {
+    const poly = face.vertices.flatMap((index) => {
+      const point = snapshot.vertices[index];
+      return point ? [point] : [];
+    });
+    return poly.length >= 3 ? [{ layer: face.layer, poly }] : [];
+  });
+  let buried = 0;
+  for (const point of edgeVertices(mesh)) {
+    for (const face of faces) {
+      const frontZ = face.layer * PAPER_LAYER_GAP_M + PAPER_THICKNESS_M;
+      if (point[2] > frontZ - 0.0002) {
+        continue;
+      }
+      if (contains(face.poly, point[0], point[1]) && distanceToEdges(face.poly, point[0], point[1]) > 0.003) {
+        buried += 1;
+        break;
+      }
+    }
+  }
+  return buried;
 }
 
 function borderInteriorCount(mesh: PaperMeshBuffers, poly: Vec3[], margin: number): number {

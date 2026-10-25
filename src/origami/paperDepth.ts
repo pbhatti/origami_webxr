@@ -112,8 +112,7 @@ export function buildPaperMesh(snapshot: MeshSnapshot, shadows = PAPER_DEPTH.sha
     const paperFrontFacesViewer = dot(face.normal, stack) >= 0;
     pushFan(paperFrontFacesViewer ? front : back, face.front, face.frontDir, false);
     pushFan(paperFrontFacesViewer ? back : front, face.back, face.frontDir, true);
-    pushWalls(edge, face, faces);
-    pushSurfaceBorders(edge, face, faces, stack, separation, thickness);
+    pushExposedEdges(edge, face, faces, thickness);
     pushLoop(layerLines, face.front);
   }
 
@@ -244,6 +243,18 @@ function pushCreases(
       continue;
     }
     if (distance(hingeA[0], hingeB[0]) < 0.00005 && distance(hingeA[1], hingeB[1]) < 0.00005) {
+      continue;
+    }
+    // A flat hinge is a crease in a continuous sheet. An edge-colored bridge
+    // there becomes one of the diagonal outlines showing through the body.
+    // While the flap is actually bent, the bridge is the visible paper edge.
+    if (Math.abs(dot(faceA.frontDir, faceB.frontDir)) > 0.96) {
+      continue;
+    }
+    const higher = faceA.layer >= faceB.layer ? faceA : faceB;
+    const lower = higher === faceA ? faceB : faceA;
+    const hingeMid = average([hingeA[0], hingeA[1], hingeB[0], hingeB[1]]);
+    if (coveredByHigherSheet(hingeMid, higher, faces) || coveredByHigherSheet(hingeMid, lower, faces)) {
       continue;
     }
     const bridge = normalize(addVec(faceA.frontDir, faceB.frontDir)) ?? faceA.frontDir;
@@ -593,60 +604,175 @@ function pushFan(bucket: SurfaceBucket, ring: Vec3[], normal: Vec3, reverse: boo
   }
 }
 
-function sameSheetEdge(face: BuiltFace, a: number, b: number, faces: BuiltFace[]): boolean {
-  const aPoint = face.base[face.indices.indexOf(a)];
-  const bPoint = face.base[face.indices.indexOf(b)];
-  return faces.some((other) => {
-    if (other === face || Math.abs(other.layer - face.layer) > 0.05) {
-      return false;
+/** Faces this close in layer still belong to one continuous sheet. */
+const SHEET_LAYER_EPS = 0.25;
+/** Step off an edge far enough to cross a split seam, not a real gap. */
+const EDGE_PROBE_M = 0.0011;
+
+/**
+ * Border and wall segments for one face edge.
+ * A segment is drawn only when it is a real cut: the sheet does not continue
+ * across it, a fold hinge does not join it, and no higher sheet covers it.
+ * Internal triangulation and buried creases return nothing, so they cannot
+ * show through the paper the way a depth-only outline would.
+ */
+function exposedCutSegments(face: BuiltFace, a: Vec3, b: Vec3, faces: BuiltFace[]): Array<[Vec3, Vec3]> {
+  const outward = edgeOutward(a, b, average(face.base), face.frontDir);
+  if (!outward || distance(a, b) < 0.002) {
+    return [];
+  }
+  const origin = face.base[0] ?? face.centroid;
+  const { u, v } = planeBasis(face.frontDir);
+  const probe = scaleVec(outward, EDGE_PROBE_M);
+  const inset = scaleVec(outward, -PAPER_EDGE_WIDTH_M * 0.55);
+  const splits = edgeSplitParameters(a, b, addVec(a, probe), addVec(b, probe), addVec(a, inset), addVec(b, inset), origin, u, v, face, faces);
+  const parts: Array<[Vec3, Vec3]> = [];
+  for (let index = 0; index < splits.length - 1; index += 1) {
+    const from = splits[index] ?? 0;
+    const to = splits[index + 1] ?? from;
+    if (to - from < 0.02) {
+      continue;
     }
-    if (Math.abs(dot(other.frontDir, face.frontDir)) < 0.82) {
-      return false;
+    const start = lerpVec(a, b, from);
+    const end = lerpVec(a, b, to);
+    if (distance(start, end) < 0.0025) {
+      continue;
     }
-    for (let index = 0; index < other.indices.length; index += 1) {
-      const start = other.indices[index];
-      const end = other.indices[(index + 1) % other.indices.length];
-      const sharesIndex = (start === a && end === b) || (start === b && end === a);
-      if (sharesIndex) {
-        return true;
-      }
-      const startPoint = other.base[index];
-      const endPoint = other.base[(index + 1) % other.base.length];
-      if (!aPoint || !bPoint || !startPoint || !endPoint) {
-        continue;
-      }
-      const forward = distance(startPoint, aPoint) < 0.00025 && distance(endPoint, bPoint) < 0.00025;
-      const reverse = distance(startPoint, bPoint) < 0.00025 && distance(endPoint, aPoint) < 0.00025;
-      if (forward || reverse) {
-        return true;
-      }
+    if (edgePointIsCut(lerpVec(start, end, 0.5), outward, face, faces)) {
+      parts.push([start, end]);
     }
-    return false;
-  });
+  }
+  return parts;
 }
 
-function pushSurfaceBorders(
+function edgeSplitParameters(
+  a: Vec3,
+  b: Vec3,
+  probeA: Vec3,
+  probeB: Vec3,
+  insetA: Vec3,
+  insetB: Vec3,
+  origin: Vec3,
+  u: Vec3,
+  v: Vec3,
+  face: BuiltFace,
+  faces: BuiltFace[],
+): number[] {
+  const ts = [0, 1];
+  const lines = [
+    [project(a, origin, u, v), project(b, origin, u, v)],
+    [project(probeA, origin, u, v), project(probeB, origin, u, v)],
+    [project(insetA, origin, u, v), project(insetB, origin, u, v)],
+  ];
+  for (const other of faces) {
+    if (!borderRelevant(face, other)) {
+      continue;
+    }
+    const ring = other.base.map((point) => project(point, origin, u, v));
+    for (let index = 0; index < ring.length; index += 1) {
+      const start = ring[index];
+      const end = ring[(index + 1) % ring.length];
+      if (!start || !end) {
+        continue;
+      }
+      for (const line of lines) {
+        const from = line[0];
+        const to = line[1];
+        if (!from || !to) {
+          continue;
+        }
+        const t = segmentParam(from, to, start, end);
+        if (t !== null && t > 1e-4 && t < 1 - 1e-4) {
+          ts.push(t);
+        }
+      }
+    }
+  }
+  ts.sort((left, right) => left - right);
+  const unique: number[] = [];
+  for (const t of ts) {
+    if (unique.length === 0 || t - unique[unique.length - 1]! > 1e-4) {
+      unique.push(t);
+    }
+  }
+  return unique;
+}
+
+function borderRelevant(face: BuiltFace, other: BuiltFace): boolean {
+  return other !== face && Math.abs(dot(other.frontDir, face.frontDir)) >= 0.82;
+}
+
+function edgePointIsCut(point: Vec3, outward: Vec3, face: BuiltFace, faces: BuiltFace[]): boolean {
+  const probe = addVec(point, scaleVec(outward, EDGE_PROBE_M));
+  const inset = addVec(point, scaleVec(outward, -PAPER_EDGE_WIDTH_M * 0.55));
+  for (const other of faces) {
+    if (!borderRelevant(face, other) || Math.abs(other.layer - face.layer) >= SHEET_LAYER_EPS) {
+      continue;
+    }
+    if (faceContains(other, probe, 0.00025)) {
+      return false;
+    }
+    if (faceContains(other, point, 0) && boundaryDistance(other, point) > 0.00045) {
+      return false;
+    }
+  }
+  if (coveredByHigherSheet(point, face, faces) || coveredByHigherSheet(inset, face, faces) || coveredByHigherSheet(probe, face, faces)) {
+    return false;
+  }
+  for (const other of faces) {
+    if (!borderRelevant(face, other) || other.layer >= face.layer - SHEET_LAYER_EPS) {
+      continue;
+    }
+    // The crease where this flap joins the sheet below. Paper continues
+    // through that hinge, so it is not a cut edge.
+    if (faceContains(other, probe, 0.0003) && boundaryDistance(other, point) <= 0.0006) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function coveredByHigherSheet(point: Vec3, face: BuiltFace, faces: BuiltFace[]): boolean {
+  return faces.some((other) =>
+    borderRelevant(face, other)
+    && other.layer > face.layer + SHEET_LAYER_EPS
+    && faceContains(other, point, 0.00045),
+  );
+}
+
+function faceContains(face: BuiltFace, point: Vec3, tolerance: number): boolean {
+  const origin = face.base[0] ?? face.centroid;
+  const { u, v } = planeBasis(face.frontDir);
+  const sample = project(point, origin, u, v);
+  const polygon = face.base.map((corner) => project(corner, origin, u, v));
+  if (pointInPolygon(sample[0], sample[1], polygon)) {
+    return true;
+  }
+  return tolerance >= 0 && distanceToPolygon(sample, polygon) <= tolerance;
+}
+
+function boundaryDistance(face: BuiltFace, point: Vec3): number {
+  const origin = face.base[0] ?? face.centroid;
+  const { u, v } = planeBasis(face.frontDir);
+  const sample = project(point, origin, u, v);
+  const polygon = face.base.map((corner) => project(corner, origin, u, v));
+  return distanceToPolygon(sample, polygon);
+}
+
+function pushExposedEdges(
   bucket: SurfaceBucket,
   face: BuiltFace,
   faces: BuiltFace[],
-  stack: Vec3,
-  separation: number,
   thickness: number,
 ): void {
-  const covers = coveringFaces(faces, face, stack, separation, thickness);
   for (let index = 0; index < face.base.length; index += 1) {
     const next = (index + 1) % face.base.length;
-    const indexA = face.indices[index];
-    const indexB = face.indices[next];
     const a = face.base[index];
     const b = face.base[next];
-    if (!a || !b || indexA === undefined || indexB === undefined || sameSheetEdge(face, indexA, indexB, faces)) {
+    if (!a || !b) {
       continue;
     }
-    if (distance(a, b) < 0.002) {
-      continue;
-    }
-    const outward = edgeOutward(a, b, face.centroid, face.frontDir);
+    const outward = edgeOutward(a, b, average(face.base), face.frontDir);
     if (!outward) {
       continue;
     }
@@ -654,10 +780,23 @@ function pushSurfaceBorders(
     if (inset < 0.0003) {
       continue;
     }
-    for (const [start, end] of exposedSegments(a, b, covers, stack)) {
+    for (const [start, end] of exposedCutSegments(face, a, b, faces)) {
       pushBorder(bucket, start, end, outward, face.frontDir, inset, thickness + BORDER_LIFT_M);
       pushBorder(bucket, start, end, outward, face.frontDir, inset, -BORDER_LIFT_M);
+      pushWallSegment(bucket, face, start, end, thickness);
     }
+  }
+}
+
+function pushWallSegment(bucket: SurfaceBucket, face: BuiltFace, start: Vec3, end: Vec3, thickness: number): void {
+  const frontA = offset(start, face.frontDir, thickness);
+  const frontB = offset(end, face.frontDir, thickness);
+  const outward = normalize(cross(sub(frontB, frontA), sub(start, frontA))) ?? face.frontDir;
+  const towardCenter = dot(outward, sub(average(face.base), frontA));
+  if (towardCenter > 0) {
+    pushQuad(bucket, frontA, start, end, frontB, scaleVec(outward, -1));
+  } else {
+    pushQuad(bucket, frontA, frontB, end, start, outward);
   }
 }
 
@@ -680,37 +819,6 @@ function pushBorder(
     pushQuad(bucket, a0, a1, b1, b0, normal);
   } else {
     pushQuad(bucket, a0, b0, b1, a1, scaleVec(normal, -1));
-  }
-}
-
-function pushWalls(
-  bucket: SurfaceBucket,
-  face: BuiltFace,
-  faces: BuiltFace[],
-): void {
-  for (let i = 0; i < face.front.length; i += 1) {
-    const next = (i + 1) % face.front.length;
-    const frontA = face.front[i];
-    const frontB = face.front[next];
-    const backB = face.back[next];
-    const backA = face.back[i];
-    const indexA = face.indices[i];
-    const indexB = face.indices[next];
-    if (!frontA || !frontB || !backA || !backB || indexA === undefined || indexB === undefined) {
-      continue;
-    }
-    // An edge shared by the same sheet is a triangulation seam. Its wall would
-    // read as a dark triangle line across paper that is actually continuous.
-    if (sameSheetEdge(face, indexA, indexB, faces)) {
-      continue;
-    }
-    const outward = normalize(cross(sub(frontB, frontA), sub(backA, frontA))) ?? face.frontDir;
-    const towardCenter = dot(outward, sub(face.centroid, frontA));
-    if (towardCenter > 0) {
-      pushQuad(bucket, frontA, backA, backB, frontB, scaleVec(outward, -1));
-    } else {
-      pushQuad(bucket, frontA, frontB, backB, backA, outward);
-    }
   }
 }
 
