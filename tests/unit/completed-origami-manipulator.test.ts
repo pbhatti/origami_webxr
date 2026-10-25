@@ -335,7 +335,7 @@ describe('CompletedOrigamiManipulator', () => {
 describe('completed animals share one scale root', () => {
   it('scales whale, fox, and bat from the parent and Fold Again restores 1×', () => {
     CREATURE_SCALE.smoothing = 80;
-    for (const id of ['whale', 'fox', 'bat', 'owl', 'turtle'] as const) {
+    for (const id of ['whale', 'fox', 'bat', 'owl', 'turtle', 'dinosaur'] as const) {
       const stage = new PaperStage();
       stage.loadAnimal(id);
       stage.startCreature();

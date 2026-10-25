@@ -194,6 +194,7 @@ export class App {
           cutter: this.stage.cutter,
           owlPinch: this.stage.owlPinch,
           turtlePinch: this.stage.turtlePinch,
+          dinosaurPinch: this.stage.dinosaurPinch,
           mover: this.stage.mover,
           indicators: this.indicators,
           debugPanel: this.debugPanel,
@@ -871,6 +872,8 @@ export class App {
         this.stage.beginOwlLife();
       } else if (this.stage.activeAnimal === 'turtle') {
         this.stage.beginTurtleLife();
+      } else if (this.stage.activeAnimal === 'dinosaur') {
+        this.stage.beginDinosaurLife();
       } else {
         this.stage.cutter.begin();
       }
@@ -884,6 +887,10 @@ export class App {
       this.enterSnapFromFold(true);
     }
     if (!engine.isBusy() && this.stage.consumeTurtleCommit()) {
+      engine.assistToTarget();
+      this.enterSnapFromFold(true);
+    }
+    if (!engine.isBusy() && this.stage.consumeDinosaurCommit()) {
       engine.assistToTarget();
       this.enterSnapFromFold(true);
     }
@@ -1106,19 +1113,24 @@ export class App {
     if ((key === 'b' || key === 'B') && event.shiftKey) {
       BAT_SHAPE_INSPECTOR.enabled = !BAT_SHAPE_INSPECTOR.enabled;
     }
-    if (event.altKey && /^Digit[1-7]$/.test(event.code)) {
+    if (event.altKey && /^Digit[1-9]$/.test(event.code)) {
       const stage = Number(event.code.slice(5));
-      if (this.stage.activeAnimal === 'owl' && stage <= 5) {
+      if (this.stage.activeAnimal === 'dinosaur') {
+        this.stage.prepareDinosaurStep(stage);
+        if (this.machine.state !== 'INSTRUCTION') {
+          this.machine.force('INSTRUCTION');
+        }
+      } else if (stage <= 7 && this.stage.activeAnimal === 'owl' && stage <= 5) {
         this.stage.prepareOwlStep(stage);
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
         }
-      } else if (this.stage.activeAnimal === 'turtle' && stage <= 6) {
+      } else if (stage <= 7 && this.stage.activeAnimal === 'turtle' && stage <= 6) {
         this.stage.prepareTurtleStep(stage);
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
         }
-      } else if (this.stage.activeAnimal === 'bat') {
+      } else if (stage <= 7 && this.stage.activeAnimal === 'bat') {
         this.stage.prepareBatStep(stage);
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');

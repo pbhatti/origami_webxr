@@ -3,6 +3,7 @@ import { MOUSE_PAPER_COLOR } from '../origami/OrigamiPaperMaterial.ts';
 import { BAT_PAPER_COLOR } from '../origami/recipes/bat.recipe.ts';
 import { FOX_PAPER_COLOR } from '../origami/recipes/fox.recipe.ts';
 import { OWL_PAPER_COLOR } from '../origami/recipes/owl.recipe.ts';
+import { DINOSAUR_PAPER_COLOR } from '../origami/recipes/dinosaur.recipe.ts';
 import { TURTLE_PAPER_COLOR } from '../origami/recipes/turtle.recipe.ts';
 
 export type AnimalId =
@@ -23,10 +24,11 @@ export type AnimalId =
   | 'bat'
   | 'owl'
   | 'turtle'
+  | 'dinosaur'
   | 'cat-sitting'
   | 'dog-standing';
 
-export type PlayableAnimalId = 'whale' | 'fox' | 'bat' | 'owl' | 'turtle';
+export type PlayableAnimalId = 'whale' | 'fox' | 'bat' | 'owl' | 'turtle' | 'dinosaur';
 
 export interface AnimalDefinition {
   id: AnimalId;
@@ -46,7 +48,8 @@ export const ANIMALS: AnimalDefinition[] = [
   { id: 'bat', name: 'Bat', row: 1, column: 0, playable: true, paperColor: BAT_PAPER_COLOR, approximation: false },
   { id: 'owl', name: 'Owl', row: 1, column: 1, playable: true, paperColor: OWL_PAPER_COLOR, approximation: false },
   { id: 'turtle', name: 'Turtle', row: 1, column: 2, playable: true, paperColor: TURTLE_PAPER_COLOR, approximation: false },
-  { id: 'crane', name: 'Crane', row: 1, column: 3, playable: false, paperColor: '#c44536', approximation: true },
+  { id: 'dinosaur', name: 'Dinosaur', row: 1, column: 3, playable: true, paperColor: DINOSAUR_PAPER_COLOR, approximation: false },
+  { id: 'crane', name: 'Crane', row: 4, column: 3, playable: false, paperColor: '#c44536', approximation: true },
   { id: 'boat', name: 'Boat', row: 2, column: 0, playable: false, paperColor: '#7d93a8', approximation: true },
   { id: 'bird', name: 'Bird', row: 2, column: 1, playable: false, paperColor: '#e8c547', approximation: true },
   { id: 'frog', name: 'Frog', row: 2, column: 2, playable: false, paperColor: '#6b8f71', approximation: true },
@@ -77,5 +80,5 @@ export function galleryRowCount(): number {
 }
 
 export function isPlayableAnimalId(id: string): id is PlayableAnimalId {
-  return id === 'whale' || id === 'fox' || id === 'bat' || id === 'owl' || id === 'turtle';
+  return id === 'whale' || id === 'fox' || id === 'bat' || id === 'owl' || id === 'turtle' || id === 'dinosaur';
 }

@@ -57,9 +57,10 @@ export function validateFold(
         landmarkErrorM = Number.POSITIVE_INFINITY;
         break;
       }
-      const folded = interpolatesMesh(step)
-        ? lerp3(source, landmark.target, t)
-        : landmarkAfterHinge(source, step.hinge, angleDeg, step.direction);
+      const folded =
+        interpolatesMesh(step) || step.meshStrategy === 'roll'
+          ? lerp3(source, landmark.target, t)
+          : landmarkAfterHinge(source, step.hinge, angleDeg, step.direction);
       landmarkErrorM = Math.max(landmarkErrorM, distance3(folded, landmark.target));
       if (landmarkErrorM > step.targetPointToleranceM) {
         landmarkOk = false;

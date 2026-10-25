@@ -269,6 +269,9 @@ export function classifyMovingFaces(
     if (hinge.minMovingLayer != null && face.layer < hinge.minMovingLayer) {
       continue;
     }
+    if (hinge.reachM != null && distanceToSegment(face.centroid, hinge.p0, hinge.p1) > hinge.reachM) {
+      continue;
+    }
     if (packet && originalFixed.has(face.originalId)) {
       continue;
     }

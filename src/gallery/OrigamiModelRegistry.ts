@@ -28,6 +28,15 @@ import {
   turtleShellHexes,
 } from '../origami/recipes/turtle.recipe.ts';
 import { FOX_PAPER_COLOR, FOX_RECIPE } from '../origami/recipes/fox.recipe.ts';
+import {
+  DINOSAUR_EYE,
+  DINOSAUR_EYE_COLOR,
+  DINOSAUR_EYE_HIGHLIGHT,
+  DINOSAUR_MARK_COLOR,
+  DINOSAUR_PAPER_COLOR,
+  DINOSAUR_RECIPE,
+  dinosaurSpineMarks,
+} from '../origami/recipes/dinosaur.recipe.ts';
 import { WHALE_RECIPE } from '../origami/recipes/whale.recipe.ts';
 import type { MeshSnapshot } from '../origami/types.ts';
 import { ANIMALS, type AnimalId } from './animals.ts';
@@ -325,6 +334,30 @@ function turtleModel(): Group {
   return group;
 }
 
+function dinosaurModel(): Group {
+  const group = snapshotModel('dinosaur', DINOSAUR_RECIPE.snapshots.dinosaur, DINOSAUR_PAPER_COLOR);
+  const decor = new Group();
+  const markMat = paperMat(DINOSAUR_MARK_COLOR);
+  for (const mark of dinosaurSpineMarks()) {
+    const positions = mark.points.flatMap((point) => [point[0], point[1], point[2]]);
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+    geometry.computeVertexNormals();
+    const plate = new Mesh(geometry, markMat);
+    plate.position.z = 0.001;
+    decor.add(plate);
+  }
+  const eye = new Mesh(new SphereGeometry(0.0042, 14, 12), paperMat(DINOSAUR_EYE_COLOR));
+  const pupil = new Mesh(new SphereGeometry(0.0018, 10, 8), paperMat('#0c0b09'));
+  const highlight = new Mesh(new SphereGeometry(0.001, 8, 8), paperMat(DINOSAUR_EYE_HIGHLIGHT));
+  eye.position.set(DINOSAUR_EYE[0], DINOSAUR_EYE[1], DINOSAUR_EYE[2]);
+  pupil.position.set(DINOSAUR_EYE[0], DINOSAUR_EYE[1], DINOSAUR_EYE[2] + 0.003);
+  highlight.position.set(DINOSAUR_EYE[0] + 0.0012, DINOSAUR_EYE[1] + 0.0012, DINOSAUR_EYE[2] + 0.004);
+  decor.add(eye, pupil, highlight);
+  group.add(decor);
+  return group;
+}
+
 function owlModel(): Group {
   const group = new Group();
   group.add(
@@ -369,6 +402,7 @@ const BUILDERS: Record<AnimalId, (color: string) => Group> = {
   bat: () => batModel(),
   owl: () => owlModel(),
   turtle: () => turtleModel(),
+  dinosaur: () => dinosaurModel(),
   rabbit: (color) =>
     poly(color, [
       triangle(-0.03, -0.02, 0.03, -0.02, 0, 0.03),

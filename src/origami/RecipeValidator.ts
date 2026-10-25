@@ -25,7 +25,13 @@ function validateStep(step: FoldStep, recipe: OrigamiRecipe, issues: RecipeIssue
   if (!toSnap) {
     issues.push({ path: `${prefix}.toSnapshotId`, message: `missing snapshot ${step.toSnapshotId}` });
   }
-  if (interpolatesMesh(step) && fromSnap && toSnap && fromSnap.vertices.length !== toSnap.vertices.length) {
+  if (
+    interpolatesMesh(step) &&
+    step.meshStrategy !== 'roll' &&
+    fromSnap &&
+    toSnap &&
+    fromSnap.vertices.length !== toSnap.vertices.length
+  ) {
     issues.push({
       path: `${prefix}.meshStrategy`,
       message: 'interpolation snapshots must have the same vertex count',
@@ -58,6 +64,21 @@ function validateStep(step: FoldStep, recipe: OrigamiRecipe, issues: RecipeIssue
       hinge.p0[2] === hinge.p1[2]
     ) {
       issues.push({ path: `${prefix}.coupledHinges[${index}]`, message: 'hinge endpoints must differ' });
+    }
+  }
+  if (step.meshStrategy === 'roll' && (step.rollSegments?.length ?? 0) < 2) {
+    issues.push({ path: `${prefix}.rollSegments`, message: 'a roll needs at least two segments' });
+  }
+  for (const [index, segment] of (step.rollSegments ?? []).entries()) {
+    finiteVec3(segment.hinge.p0, `${prefix}.rollSegments[${index}].p0`, issues);
+    finiteVec3(segment.hinge.p1, `${prefix}.rollSegments[${index}].p1`, issues);
+    finiteVec3(segment.tip, `${prefix}.rollSegments[${index}].tip`, issues);
+    if (
+      segment.hinge.p0[0] === segment.hinge.p1[0] &&
+      segment.hinge.p0[1] === segment.hinge.p1[1] &&
+      segment.hinge.p0[2] === segment.hinge.p1[2]
+    ) {
+      issues.push({ path: `${prefix}.rollSegments[${index}]`, message: 'hinge endpoints must differ' });
     }
   }
   if (step.movingRegion.polygonUV.length < 3) {

@@ -9,7 +9,8 @@ export type MeshStrategy =
   | 'coupled-collapse'
   | 'unfold'
   | 'flap-fold'
-  | 'crease-press';
+  | 'crease-press'
+  | 'roll';
 
 export interface FaceDefinition {
   id: string;
@@ -33,10 +34,22 @@ export interface HingeDefinition {
    * side of the hinge. Used when a small flap sits on top of a larger sheet.
    */
   minMovingLayer?: number;
+  /**
+   * When set, only faces this close to the crease segment move. Keeps a short
+   * tip fold from taking the rest of the half-plane.
+   */
+  reachM?: number;
 }
 
 export interface CoupledHinge extends HingeDefinition {
   targetAngleDeg: number;
+}
+
+/** One hinge in a staggered roll. Outermost segment is index 0. */
+export interface RollSegment {
+  hinge: HingeDefinition;
+  /** A point on the moving side, used only to orient the half-plane. */
+  tip: Vec3;
 }
 
 export interface GrabRegion {
@@ -83,6 +96,13 @@ export interface FoldStep {
   progressStage?: number;
   /** Steps that share a group can be completed in either order. */
   parallelGroup?: string;
+  /**
+   * Staggered hinges for `meshStrategy: 'roll'`. Index 0 is the outermost
+   * segment and finishes first, so the motion reads as a roll.
+   */
+  rollSegments?: RollSegment[];
+  /** `close` rolls inward. `open` reverses those hinges back to the start pose. */
+  rollDirection?: 'close' | 'open';
   validationNotes: string;
 }
 

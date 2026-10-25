@@ -16,6 +16,7 @@ import { clamp, lerp3 } from '../utils/math.ts';
 import { rotateAroundHinge } from './CreaseSolver.ts';
 import { copy3 } from './creaseMath.ts';
 import { deformByHinge } from './MeshSplitter.ts';
+import { deformRollSnapshot } from './rollFold.ts';
 import {
   FOLD_PAPER_COLOR,
   applyPaperMaterial,
@@ -77,6 +78,9 @@ export function deformFoldSnapshot(
     return fromSnap;
   }
   const t = clamp(angleDeg / Math.max(step.targetAngleDeg, 1e-6), 0, 1);
+  if (step.meshStrategy === 'roll' && (step.rollSegments?.length ?? 0) > 0) {
+    return deformRollSnapshot(fromSnap, step.rollSegments ?? [], t, step.rollDirection ?? 'close');
+  }
   if (interpolatesMesh(step) && fromSnap.vertices.length === toSnap.vertices.length) {
     return { ...fromSnap, vertices: interpolate(fromSnap, toSnap, t), faces: blendLayers(fromSnap, toSnap, t) };
   }
