@@ -611,12 +611,19 @@ const EDGE_PROBE_M = 0.0011;
 
 /**
  * Border and wall segments for one face edge.
- * A segment is drawn only when it is a real cut: the sheet does not continue
- * across it, a fold hinge does not join it, and no higher sheet covers it.
- * Internal triangulation and buried creases return nothing, so they cannot
- * show through the paper the way a depth-only outline would.
+ * A segment is drawn when it is the boundary of this sheet and no higher
+ * sheet covers it. An overlapping flap is a real edge, even when it lies
+ * across paper underneath. A seam is hidden only when the sheet continues
+ * across it, or when a higher layer covers that portion.
  */
-function exposedCutSegments(face: BuiltFace, a: Vec3, b: Vec3, faces: BuiltFace[]): Array<[Vec3, Vec3]> {
+function exposedCutSegments(
+  face: BuiltFace,
+  indexA: number,
+  indexB: number,
+  a: Vec3,
+  b: Vec3,
+  faces: BuiltFace[],
+): Array<[Vec3, Vec3]> {
   const outward = edgeOutward(a, b, average(face.base), face.frontDir);
   if (!outward || distance(a, b) < 0.002) {
     return [];
@@ -630,15 +637,15 @@ function exposedCutSegments(face: BuiltFace, a: Vec3, b: Vec3, faces: BuiltFace[
   for (let index = 0; index < splits.length - 1; index += 1) {
     const from = splits[index] ?? 0;
     const to = splits[index + 1] ?? from;
-    if (to - from < 0.02) {
+    if (to - from < 0.004) {
       continue;
     }
     const start = lerpVec(a, b, from);
     const end = lerpVec(a, b, to);
-    if (distance(start, end) < 0.0025) {
+    if (distance(start, end) < 0.0015) {
       continue;
     }
-    if (edgePointIsCut(lerpVec(start, end, 0.5), outward, face, faces)) {
+    if (edgePointIsCut(lerpVec(start, end, 0.5), outward, face, indexA, indexB, a, b, faces)) {
       parts.push([start, end]);
     }
   }
@@ -702,34 +709,83 @@ function borderRelevant(face: BuiltFace, other: BuiltFace): boolean {
   return other !== face && Math.abs(dot(other.frontDir, face.frontDir)) >= 0.82;
 }
 
-function edgePointIsCut(point: Vec3, outward: Vec3, face: BuiltFace, faces: BuiltFace[]): boolean {
+function edgePointIsCut(
+  point: Vec3,
+  outward: Vec3,
+  face: BuiltFace,
+  indexA: number,
+  indexB: number,
+  edgeA: Vec3,
+  edgeB: Vec3,
+  faces: BuiltFace[],
+): boolean {
   const probe = addVec(point, scaleVec(outward, EDGE_PROBE_M));
   const inset = addVec(point, scaleVec(outward, -PAPER_EDGE_WIDTH_M * 0.55));
+  // A higher flap hides only the portion it actually covers. The inset sample
+  // keeps the border strip from poking out under that flap.
+  if (coveredByHigherSheet(point, face, faces) || coveredByHigherSheet(inset, face, faces)) {
+    return false;
+  }
   for (const other of faces) {
     if (!borderRelevant(face, other) || Math.abs(other.layer - face.layer) >= SHEET_LAYER_EPS) {
       continue;
     }
-    if (faceContains(other, probe, 0.00025)) {
+    if (!faceContains(other, probe, 0.00025)) {
+      continue;
+    }
+    // This edge runs through the interior of another face on the same layer,
+    // so that sheet covers it. A flap edge that only crosses the other face
+    // near one end is still the flap's own boundary and stays visible.
+    if (
+      faceContains(other, point, 0)
+      && boundaryDistance(other, point) > 0.0012
+      && edgeRunsThrough(other, edgeA, edgeB)
+    ) {
       return false;
     }
-    if (faceContains(other, point, 0) && boundaryDistance(other, point) > 0.00045) {
+    // Same sheet continuing across a shared seam or a T-junction.
+    const meets = boundaryDistance(other, point) <= 0.0005;
+    if (meets && !flapLiesAcross(other, point, outward)) {
       return false;
     }
-  }
-  if (coveredByHigherSheet(point, face, faces) || coveredByHigherSheet(inset, face, faces) || coveredByHigherSheet(probe, face, faces)) {
-    return false;
   }
   for (const other of faces) {
     if (!borderRelevant(face, other) || other.layer >= face.layer - SHEET_LAYER_EPS) {
       continue;
     }
-    // The crease where this flap joins the sheet below. Paper continues
-    // through that hinge, so it is not a cut edge.
-    if (faceContains(other, probe, 0.0003) && boundaryDistance(other, point) <= 0.0006) {
+    // The crease where this flap is joined to the sheet below. A free edge
+    // that only lies near an older crease is not that join, so it stays visible.
+    if (
+      faceContains(other, probe, 0.0003)
+      && sharesIndexedEdge(other, indexA, indexB)
+      && !flapLiesAcross(other, point, outward)
+    ) {
       return false;
     }
   }
   return true;
+}
+
+function sharesIndexedEdge(other: BuiltFace, indexA: number, indexB: number): boolean {
+  for (let index = 0; index < other.indices.length; index += 1) {
+    const start = other.indices[index];
+    const end = other.indices[(index + 1) % other.indices.length];
+    if ((start === indexA && end === indexB) || (start === indexB && end === indexA)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function edgeRunsThrough(other: BuiltFace, edgeA: Vec3, edgeB: Vec3): boolean {
+  const mid = lerpVec(edgeA, edgeB, 0.5);
+  return faceContains(other, mid, 0) && boundaryDistance(other, mid) > 0.0012;
+}
+
+/** True when `other` extends under this flap, not merely beside it. */
+function flapLiesAcross(other: BuiltFace, point: Vec3, outward: Vec3): boolean {
+  const inward = addVec(point, scaleVec(outward, -0.002));
+  return faceContains(other, inward, 0.0002);
 }
 
 function coveredByHigherSheet(point: Vec3, face: BuiltFace, faces: BuiltFace[]): boolean {
@@ -767,9 +823,11 @@ function pushExposedEdges(
 ): void {
   for (let index = 0; index < face.base.length; index += 1) {
     const next = (index + 1) % face.base.length;
+    const indexA = face.indices[index];
+    const indexB = face.indices[next];
     const a = face.base[index];
     const b = face.base[next];
-    if (!a || !b) {
+    if (!a || !b || indexA === undefined || indexB === undefined) {
       continue;
     }
     const outward = edgeOutward(a, b, average(face.base), face.frontDir);
@@ -780,7 +838,7 @@ function pushExposedEdges(
     if (inset < 0.0003) {
       continue;
     }
-    for (const [start, end] of exposedCutSegments(face, a, b, faces)) {
+    for (const [start, end] of exposedCutSegments(face, indexA, indexB, a, b, faces)) {
       pushBorder(bucket, start, end, outward, face.frontDir, inset, thickness + BORDER_LIFT_M);
       pushBorder(bucket, start, end, outward, face.frontDir, inset, -BORDER_LIFT_M);
       pushWallSegment(bucket, face, start, end, thickness);

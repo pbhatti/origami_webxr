@@ -402,6 +402,42 @@ describe('folded paper depth', () => {
     expect(edgeVerticesNear(mesh, [0.05, 0, 0], 0.0025)).toBe(0);
   });
 
+  it('outlines a top flap where it lies across the sheet underneath', () => {
+    const flap = layered(
+      [
+        [0, 0, 0],
+        [0.12, 0, 0],
+        [0.06, 0.1, 0],
+        [0.03, 0.02, 0],
+        [0.09, 0.02, 0],
+        [0.06, 0.07, 0],
+      ],
+      [
+        ['base', [0, 1, 2], 0],
+        ['wing', [3, 4, 5], 1],
+      ],
+    );
+    const mesh = buildPaperMesh(flap, false);
+    expect(borderCoversPoint(mesh, [0.06, 0.02, 0], 0.002)).toBe(true);
+    expect(borderCoversPoint(mesh, [0.045, 0.045, 0], 0.002)).toBe(true);
+    expect(edgeVerticesInside(mesh, [
+      [0.035, 0.025, 0],
+      [0.085, 0.025, 0],
+      [0.06, 0.06, 0],
+    ], 0.001)).toBe(0);
+  });
+
+  it('outlines both owl wing diagonals and hides the covered part of a lower flap', () => {
+    const body = OWL_RECIPE.snapshots.body;
+    expect(body).toBeTruthy();
+    const mesh = buildPaperMesh(body!, false);
+    const wings = wingDiagonalSamples(body!);
+    expect(wings.length).toBeGreaterThanOrEqual(2);
+    for (const sample of wings) {
+      expect(borderCoversPoint(mesh, sample, 0.002), `${sample[0].toFixed(3)},${sample[1].toFixed(3)}`).toBe(true);
+    }
+  });
+
   it('drops borders buried inside a higher sheet on the finished animals', () => {
     const finished: Array<[string, MeshSnapshot | undefined, Vec3[] | undefined]> = [
       ['whale', WHALE_RECIPE.snapshots.whale, WHALE_RECIPE.finalSilhouette],
@@ -450,6 +486,77 @@ function groupZs(mesh: PaperMeshBuffers, materialIndex: number): { min: number; 
   return { min, max, mean: sum / group.count, count: group.count };
 }
 
+function borderCoversPoint(mesh: PaperMeshBuffers, point: Vec3, radius: number): boolean {
+  const group = mesh.groups.find((entry) => entry.materialIndex === 2);
+  if (!group) {
+    return false;
+  }
+  for (let vertex = 0; vertex < group.count; vertex += 3) {
+    const triangle: Vec3[] = [];
+    for (let corner = 0; corner < 3; corner += 1) {
+      const offset = (group.start + vertex + corner) * 3;
+      triangle.push([
+        mesh.positions[offset] ?? 0,
+        mesh.positions[offset + 1] ?? 0,
+        mesh.positions[offset + 2] ?? 0,
+      ]);
+    }
+    if (distanceToTriangle(point, triangle) <= radius) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function distanceToTriangle(point: Vec3, triangle: Vec3[]): number {
+  const [a, b, c] = triangle;
+  if (!a || !b || !c) {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (contains([a, b, c], point[0], point[1])) {
+    return 0;
+  }
+  return Math.min(
+    distanceToEdges([a, b], point[0], point[1]),
+    distanceToEdges([b, c], point[0], point[1]),
+    distanceToEdges([c, a], point[0], point[1]),
+  );
+}
+
+function wingDiagonalSamples(snapshot: MeshSnapshot): Vec3[] {
+  const samples: Vec3[] = [];
+  for (const face of snapshot.faces) {
+    if (face.layer < 1) {
+      continue;
+    }
+    const poly = face.vertices.flatMap((index) => {
+      const point = snapshot.vertices[index];
+      return point ? [point] : [];
+    });
+    for (let index = 0; index < poly.length; index += 1) {
+      const start = poly[index];
+      const end = poly[(index + 1) % poly.length];
+      if (!start || !end) {
+        continue;
+      }
+      const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+      const midX = (start[0] + end[0]) / 2;
+      const midY = (start[1] + end[1]) / 2;
+      if (length < 0.12 || Math.abs(Math.abs(midX) - 0.015) > 0.01 || Math.abs(midY - 0.035) > 0.015) {
+        continue;
+      }
+      for (const t of [0.2, 0.8]) {
+        samples.push([
+          start[0] + (end[0] - start[0]) * t,
+          start[1] + (end[1] - start[1]) * t,
+          0,
+        ]);
+      }
+    }
+  }
+  return samples;
+}
+
 function edgeVertices(mesh: PaperMeshBuffers): Vec3[] {
   const group = mesh.groups.find((entry) => entry.materialIndex === 2);
   if (!group) {
@@ -490,8 +597,10 @@ function bordersUnderHigherFace(snapshot: MeshSnapshot, mesh: PaperMeshBuffers):
   let buried = 0;
   for (const point of edgeVertices(mesh)) {
     for (const face of faces) {
-      const frontZ = face.layer * PAPER_LAYER_GAP_M + PAPER_THICKNESS_M;
-      if (point[2] > frontZ - 0.0002) {
+      // The back of this same sheet sits just below its front. Only a border
+      // from a lower layer counts as hidden underneath.
+      const sheetZ = face.layer * PAPER_LAYER_GAP_M;
+      if (point[2] > sheetZ - 0.00015) {
         continue;
       }
       if (contains(face.poly, point[0], point[1]) && distanceToEdges(face.poly, point[0], point[1]) > 0.003) {
