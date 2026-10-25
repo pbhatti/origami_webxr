@@ -97,7 +97,6 @@ export class OrigamiEngine {
   private snapArmed = false;
   private committedStepIds = new Set<string>();
   private liveSnapshot: MeshSnapshot | null = null;
-  private storedRollProgress = 0;
 
   constructor(recipe: OrigamiRecipe, vertices: Record<string, Vec3>) {
     assertRecipe(recipe);
@@ -168,11 +167,6 @@ export class OrigamiEngine {
 
   get foldCompletion(): number {
     return this.foldT;
-  }
-
-  /** 0 while the neck is open, 1 once the roll has landed. Reset clears it. */
-  get rollProgress(): number {
-    return this.storedRollProgress;
   }
 
   get magneticArmed(): boolean {
@@ -322,7 +316,6 @@ export class OrigamiEngine {
     this.commitEvents = 0;
     this.liveSnapshot = null;
     this.silhouettePassed = true;
-    this.storedRollProgress = 0;
     this.resetSnapArm();
   }
 
@@ -387,7 +380,6 @@ export class OrigamiEngine {
       this.angleDeg = applyFoldAssist(base, step.targetAngleDeg, baseT, dtMs);
     }
     this.foldT = foldProgress(step.startAngleDeg, step.targetAngleDeg, this.angleDeg);
-    this.rememberRoll(step);
     this.lastValidation = validateFold(step, this.angleDeg, this.vertices, { holdMs: this.holdMs });
     this.armSnap(this.foldT, dtMs);
     debugEvents.emit('foldAngleChanged', {
@@ -425,7 +417,6 @@ export class OrigamiEngine {
     }
     this.grabLocal = null;
     this.foldT = foldProgress(step.startAngleDeg, step.targetAngleDeg, this.angleDeg);
-    this.rememberRoll(step);
     this.lastValidation = validateFold(step, this.angleDeg, this.vertices, { holdMs: this.holdMs });
     const autoSnap = passedAutoSnap(this.foldT) || this.snapArmed;
     if (autoSnap && !this.lastValidation.ok) {
@@ -486,7 +477,6 @@ export class OrigamiEngine {
     const t = easeOutCubic(this.animElapsed / this.animDuration);
     this.angleDeg = lerp(this.animFrom, this.animTo, t);
     this.foldT = foldProgress(this.currentStep?.startAngleDeg ?? 0, this.currentStep?.targetAngleDeg ?? 1, this.angleDeg);
-    this.rememberRoll(this.currentStep);
     if (this.animElapsed < this.animDuration) {
       return { finished: false, committed: false };
     }
@@ -518,9 +508,6 @@ export class OrigamiEngine {
     this.committed += 1;
     this.commitEvents += 1;
     this.committedStepIds.add(step.id);
-    if (step.meshStrategy === 'roll' && step.rollDirection !== 'open') {
-      this.storedRollProgress = 1;
-    }
     const from = this.fromSnapshot;
     if (step.parallelGroup && from && usesAxisAngleFold(step)) {
       const hint = step.targetLandmarks[0]?.sourceVertexId
@@ -634,13 +621,6 @@ export class OrigamiEngine {
     if (this.snapStableMs >= FOLD_ASSIST.stabilityDurationMs) {
       this.snapArmed = true;
     }
-  }
-
-  private rememberRoll(step: FoldStep | null): void {
-    if (!step || step.meshStrategy !== 'roll' || step.rollDirection === 'open') {
-      return;
-    }
-    this.storedRollProgress = foldProgress(step.startAngleDeg, step.targetAngleDeg, this.angleDeg);
   }
 
   private resetSnapArm(): void {

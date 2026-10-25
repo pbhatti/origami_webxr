@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { writeFileSync } from 'node:fs';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
 import { CREASE_ALIGN_TOL_M, creaseAlignmentErrorM } from '../../src/origami/creaseMath.ts';
 import { snapshotBounds } from '../../src/origami/batFinalShape.ts';
-import { origamiPaperMaterial } from '../../src/origami/OrigamiPaperMaterial.ts';
+import { FOLD_ASSIST } from '../../src/origami/foldAssist.ts';
+import { deformByHinge } from '../../src/origami/MeshSplitter.ts';
+import { createPaperMaterials, origamiPaperMaterial } from '../../src/origami/OrigamiPaperMaterial.ts';
 import { buildPaperMesh, PAPER_LAYER_GAP_M } from '../../src/origami/paperDepth.ts';
 import { progressFromRecipe } from '../../src/origami/progressModel.ts';
 import { validateRecipe } from '../../src/origami/RecipeValidator.ts';
@@ -12,24 +13,19 @@ import {
   DINOSAUR_BACK_COLOR,
   DINOSAUR_EDGE_COLOR,
   DINOSAUR_EYE,
+  DINOSAUR_FOOT_TIP,
   DINOSAUR_HEAD_TIP,
   DINOSAUR_MARK_COLOR,
   DINOSAUR_NAMED,
-  DINOSAUR_NECK_WIDTH,
-  DINOSAUR_OPEN_MIN_LAYER,
   DINOSAUR_PAPER_COLOR,
   DINOSAUR_RECIPE,
-  DINOSAUR_ROLL_SEGMENT_COUNT,
   DINOSAUR_STEPS,
-  DINOSAUR_TAIL_TIP,
-  dinosaurRollAt,
   dinosaurSpineMarks,
 } from '../../src/origami/recipes/dinosaur.recipe.ts';
 import { FOX_RECIPE } from '../../src/origami/recipes/fox.recipe.ts';
 import { OWL_RECIPE } from '../../src/origami/recipes/owl.recipe.ts';
 import { TURTLE_RECIPE } from '../../src/origami/recipes/turtle.recipe.ts';
 import { WHALE_RECIPE } from '../../src/origami/recipes/whale.recipe.ts';
-import { deformFoldSnapshot } from '../../src/origami/FoldPaper.ts';
 import type { MeshSnapshot, Vec3 } from '../../src/origami/types.ts';
 import type { PaperMeshBuffers } from '../../src/origami/paperDepth.ts';
 
@@ -77,41 +73,19 @@ function contains(poly: Vec3[], x: number, y: number): boolean {
   return inside;
 }
 
-function svg(name: string, snapshot: MeshSnapshot): void {
-  const lines: string[] = [];
-  lines.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="-120 -120 240 240">');
-  snapshot.faces.forEach((face, index) => {
-    const pts = face.vertices
-      .map((vertex) => snapshot.vertices[vertex])
-      .filter((point): point is Vec3 => point != null)
-      .map((point) => `${(point[0] * 1000).toFixed(1)},${(-point[1] * 1000).toFixed(1)}`)
-      .join(' ');
-    const color = `hsl(${(face.layer * 28) % 360} 70% ${42 + (index % 3) * 8}%)`;
-    lines.push(`<polygon points="${pts}" fill="${color}" fill-opacity="0.35" stroke="#222" stroke-width="0.6"/>`);
-  });
-  lines.push('</svg>');
-  writeFileSync(`/tmp/dino-${name}.svg`, lines.join('\n'));
-}
-
 describe('origami dinosaur recipe', () => {
-  it('dumps step outlines and matches the nine-step silhouette', () => {
+  it('keeps steps 1–5 and shapes the head from the opened flap', () => {
     const snaps: Array<[string, MeshSnapshot | undefined]> = [
-      ['1-triangle', DINOSAUR_RECIPE.snapshots.triangle],
-      ['2-triangle-crease', DINOSAUR_RECIPE.snapshots.triangle],
-      ['3-section', DINOSAUR_RECIPE.snapshots.section],
-      ['4-narrow', DINOSAUR_RECIPE.snapshots.narrow],
-      ['5-opened', DINOSAUR_RECIPE.snapshots.opened],
-      ['6-neck', DINOSAUR_RECIPE.snapshots.neck],
-      ['7-head', DINOSAUR_RECIPE.snapshots.headed],
-      ['8-tail', DINOSAUR_RECIPE.snapshots.tailed],
+      ['triangle', DINOSAUR_RECIPE.snapshots.triangle],
+      ['section', DINOSAUR_RECIPE.snapshots.section],
+      ['narrow', DINOSAUR_RECIPE.snapshots.narrow],
+      ['opened', DINOSAUR_RECIPE.snapshots.opened],
+      ['headed', DINOSAUR_RECIPE.snapshots.headed],
+      ['footed', DINOSAUR_RECIPE.snapshots.footed],
     ];
     for (const [name, snapshot] of snaps) {
       expect(snapshot, name).toBeTruthy();
-      svg(name, snapshot!);
-      const bounds = snapshotBounds(snapshot!);
-      console.log(name, bounds, 'layers', [...new Set(snapshot!.faces.map((face) => face.layer))].sort((a, b) => a - b), 'TR', snapshot!.named?.TR, 'EDGE', snapshot!.named?.EDGE, 'BL', snapshot!.named?.BL);
     }
-    console.log('head tip', DINOSAUR_HEAD_TIP, 'tail', DINOSAUR_TAIL_TIP, 'eye', DINOSAUR_EYE, 'neck width', DINOSAUR_NECK_WIDTH, 'open layers', DINOSAUR_OPEN_MIN_LAYER, 'segments', DINOSAUR_ROLL_SEGMENT_COUNT);
     const triangle = DINOSAUR_RECIPE.snapshots.triangle!;
     const tri = snapshotBounds(triangle);
     expect(tri.minX).toBeCloseTo(-S, 2);
@@ -138,60 +112,142 @@ describe('origami dinosaur recipe', () => {
     const openBounds = snapshotBounds(opened);
     expect(openBounds.maxX).toBeGreaterThan(S * 0.9);
     expect(openBounds.minX).toBeCloseTo(-S, 2);
+    expect(openBounds.maxY).toBeGreaterThan(S * 0.9);
     expect(pointInside(opened, -S * 0.55, S * 0.45)).toBe(false);
+    expect(pointInside(opened, -S * 0.4, -S * 0.7)).toBe(true);
 
-    const neck = DINOSAUR_RECIPE.snapshots.neck!;
-    const neckBounds = snapshotBounds(neck);
-    expect(neckBounds.maxX).toBeLessThan(DINOSAUR_NECK_WIDTH + 0.012);
-    expect(neckBounds.maxX).toBeGreaterThan(DINOSAUR_NECK_WIDTH * 0.7);
-    expect(neckBounds.minX).toBeCloseTo(-S, 2);
-    expect(neckBounds.maxY).toBeGreaterThan(S * 0.85);
-    expect(pointInside(neck, -S * 0.4, -S * 0.7)).toBe(true);
+    const headed = DINOSAUR_RECIPE.snapshots.headed!;
+    const headBounds = snapshotBounds(headed);
+    expect(headBounds.maxX).toBeGreaterThan(S + 0.008);
+    expect(headBounds.minX).toBeCloseTo(-S, 2);
+    expect(headBounds.minY).toBeCloseTo(-S, 2);
+    expect(headBounds.maxY).toBeLessThan(S - 0.01);
+    expect(headBounds.maxY).toBeGreaterThan(S * 0.6);
+    expect(DINOSAUR_HEAD_TIP[0]).toBeGreaterThan(S + 0.008);
+    expect(DINOSAUR_HEAD_TIP[1]).toBeLessThan(S - 0.01);
+    expect(DINOSAUR_HEAD_TIP[1]).toBeGreaterThan(0.04);
+    expect(pointInside(headed, -S * 0.4, -S * 0.7)).toBe(true);
+    expect(headed.vertices.some((vertex) => Math.abs(vertex[0] - S) < 0.004 && Math.abs(vertex[1] + S) < 0.004)).toBe(true);
 
-    expect(DINOSAUR_HEAD_TIP[0]).toBeGreaterThan(DINOSAUR_NECK_WIDTH);
-    expect(DINOSAUR_TAIL_TIP[0]).toBeGreaterThan(-S + 0.008);
-    expect(DINOSAUR_TAIL_TIP[1]).toBeGreaterThan(-S + 0.004);
+    expect(DINOSAUR_FOOT_TIP[0]).toBeGreaterThan(-S + 0.008);
+    expect(DINOSAUR_FOOT_TIP[1]).toBeGreaterThan(-S + 0.004);
+    expect(DINOSAUR_RECIPE.snapshots.footed?.named?.TR?.[0]).toBeCloseTo(DINOSAUR_HEAD_TIP[0], 3);
+    expect(DINOSAUR_RECIPE.snapshots.footed?.named?.TR?.[1]).toBeCloseTo(DINOSAUR_HEAD_TIP[1], 3);
+    expect(DINOSAUR_EYE[0]).toBeGreaterThan(S);
+    expect(DINOSAUR_EYE[1]).toBeGreaterThan(0.04);
   });
 
-  it('rolls from fully open to a narrow neck without dropping paper', () => {
-    const open = dinosaurRollAt(0);
-    const mid = dinosaurRollAt(0.5);
-    const shut = dinosaurRollAt(1);
-    expect(snapshotBounds(open).maxX).toBeGreaterThan(S * 0.9);
-    expect(snapshotBounds(shut).maxX).toBeLessThan(DINOSAUR_NECK_WIDTH + 0.012);
-    expect(mid.faces.length).toBeGreaterThanOrEqual(open.faces.length);
-    expect(shut.faces.length).toBeGreaterThanOrEqual(open.faces.length);
-    const step = DINOSAUR_RECIPE.steps.find((entry) => entry.id === 'dino-roll');
-    expect(step).toBeTruthy();
-    const animated = deformFoldSnapshot(step!, open, shut, 90);
-    expect(animated.faces.length).toBeGreaterThan(0);
-    expect(snapshotBounds(animated).maxX).toBeLessThan(S);
-    expect(snapshotBounds(animated).minX).toBeLessThan(-S * 0.8);
+  it('hinges the head on the opened flap so the tip points right', () => {
+    const opened = DINOSAUR_RECIPE.snapshots.opened!;
+    const head = DINOSAUR_RECIPE.steps.find((entry) => entry.id === 'dino-head');
+    expect(head?.fromSnapshotId).toBe('opened');
+    expect(head?.toSnapshotId).toBe('headed');
+    expect(head?.meshStrategy).toBe('hinge');
+    expect(head?.rollSegments).toBeUndefined();
+    expect(head?.rollDirection).toBeUndefined();
+    expect(head?.targetAngleDeg).toBe(180);
+    expect(FOLD_ASSIST.activationThreshold).toBe(0.5);
+    const tip = opened.named?.TR;
+    expect(tip?.[0]).toBeCloseTo(S, 3);
+    expect(tip?.[1]).toBeCloseTo(S, 3);
+    const ends = [head!.hinge.p0, head!.hinge.p1];
+    expect(ends.some((point) => Math.abs(point[0] - tip![0]) < 0.003 && point[1] < tip![1] - 0.01 && point[1] > tip![1] - 0.04)).toBe(true);
+    expect(ends.some((point) => Math.abs(point[0] - point[1]) < 0.004 && point[0] < tip![0] - 0.02 && point[1] > 0.04)).toBe(true);
+    const arrowStart = head!.arrowPathLocal[0];
+    const arrowEnd = head!.arrowPathLocal.at(-1);
+    expect(arrowEnd![0]).toBeGreaterThan(arrowStart![0]);
+    expect(arrowEnd![1]).toBeLessThan(arrowStart![1]);
+
+    const still = deformByHinge(opened, head!.hinge, 0, tip);
+    const originals = [...still.movingVertexIds].flatMap((index) => {
+      const vertex = still.snapshot.vertices[index];
+      return vertex ? [vertex] : [];
+    });
+    expect(originals).toHaveLength(1);
+    expect(originals[0]?.[0]).toBeCloseTo(tip![0], 3);
+    expect(originals[0]?.[1]).toBeCloseTo(tip![1], 3);
+    const folded = deformByHinge(opened, head!.hinge, -180, tip);
+    const landed = [...folded.movingVertexIds].flatMap((index) => {
+      const vertex = folded.snapshot.vertices[index];
+      return vertex ? [vertex] : [];
+    });
+    expect(landed[0]?.[0]).toBeGreaterThan(tip![0] + 0.008);
+    expect(landed[0]?.[1]).toBeLessThan(tip![1] - 0.015);
+    expect(folded.snapshot.vertices.some((vertex) => Math.hypot(vertex[0] + S, vertex[1] + S) < 0.004)).toBe(true);
+    expect(folded.snapshot.vertices.some((vertex) => Math.hypot(vertex[0] - S, vertex[1] + S) < 0.004)).toBe(true);
   });
 
-  it('is a valid nine-step recipe and leaves the other animals alone', () => {
+  it('folds only the bottom corner into the foot', () => {
+    const headed = DINOSAUR_RECIPE.snapshots.headed!;
+    const foot = DINOSAUR_RECIPE.steps.find((entry) => entry.id === 'dino-foot');
+    expect(foot?.fromSnapshotId).toBe('headed');
+    expect(foot?.progressStage).toBe(7);
+    expect(foot?.title).toBe('Shape the foot');
+    expect(foot?.instruction).toBe("Fold the bottom corner to create the dinosaur's foot.");
+    const corner = headed.named?.BL ?? [-S, -S, 0];
+    const still = deformByHinge(headed, foot!.hinge, 0, corner);
+    const originals = [...still.movingVertexIds].flatMap((index) => {
+      const vertex = still.snapshot.vertices[index];
+      return vertex ? [vertex] : [];
+    });
+    expect(originals.length).toBeGreaterThan(0);
+    for (const vertex of originals) {
+      expect(vertex[0]).toBeLessThan(-0.05);
+      expect(vertex[1]).toBeLessThan(-0.05);
+      expect(Math.hypot(vertex[0] - DINOSAUR_HEAD_TIP[0], vertex[1] - DINOSAUR_HEAD_TIP[1])).toBeGreaterThan(0.05);
+    }
+    const ends = [foot!.hinge.p0, foot!.hinge.p1];
+    expect(ends.some((point) => Math.abs(point[1] + S) < 0.004 && point[0] < -0.05)).toBe(true);
+    for (const point of ends) {
+      expect(point[0]).toBeLessThan(-0.05);
+      expect(point[1]).toBeLessThan(-0.05);
+      expect(Math.hypot(point[0] + S, point[1] + S)).toBeLessThan(0.04);
+    }
+  });
+
+  it('is a valid eight-step recipe and leaves the other animals alone', () => {
     expect(DINOSAUR_PAPER_COLOR).toBe('#FFC547');
     const paper = origamiPaperMaterial(DINOSAUR_PAPER_COLOR);
     expect(paper.backColor).toBe(DINOSAUR_BACK_COLOR.toLowerCase());
     expect(paper.edgeColor).toBe(DINOSAUR_EDGE_COLOR.toLowerCase());
     expect(DINOSAUR_MARK_COLOR).toBe('#D96722');
     expect(validateRecipe(DINOSAUR_RECIPE)).toEqual([]);
-    expect(DINOSAUR_STEPS).toHaveLength(9);
-    expect(progressFromRecipe(DINOSAUR_RECIPE).totalSteps).toBe(9);
-    expect(DINOSAUR_RECIPE.steps.map((entry) => entry.title)).toEqual([
-      'Fold into a triangle',
-      'Create the center crease',
-      'Create the center crease',
-      'Fold the first section',
-      'Fold the section again',
-      'Open the fold',
-      'Roll up the neck',
-      'Shape the head',
-      'Shape the tail',
-      'Bring it to life',
+    expect(DINOSAUR_STEPS).toEqual([
+      'triangle',
+      'center-crease',
+      'first-section',
+      'section-again',
+      'open-fold',
+      'head',
+      'foot',
+      'dinosaur-decoration',
     ]);
-    expect(DINOSAUR_RECIPE.steps.filter((entry) => entry.progressStage === 6)[0]?.meshStrategy).toBe('roll');
-    expect(DINOSAUR_ROLL_SEGMENT_COUNT).toBeGreaterThanOrEqual(3);
+    expect(progressFromRecipe(DINOSAUR_RECIPE).totalSteps).toBe(8);
+    expect(DINOSAUR_RECIPE.steps).toHaveLength(9);
+    expect(DINOSAUR_RECIPE.steps.map((entry) => entry.title)).toEqual([
+      'Fold in half',
+      'Create a crease and unfold',
+      'Create a crease and unfold',
+      'Fold the first side inward',
+      'Fold the second side inward',
+      'Open the fold',
+      "Shape the dinosaur's head",
+      'Shape the foot',
+      'Bring your dinosaur to life',
+    ]);
+    expect(DINOSAUR_RECIPE.steps.find((entry) => entry.id === 'dino-head')?.instruction).toBe(
+      "Fold the top tip outward to create the dinosaur's head.",
+    );
+    expect(DINOSAUR_RECIPE.steps.find((entry) => entry.id === 'dino-decorate')?.instruction).toBe(
+      'Pinch to bring your dinosaur to life!',
+    );
+    expect(DINOSAUR_RECIPE.steps.filter((entry) => entry.progressStage === 8).map((entry) => entry.id)).toEqual([
+      'dino-decorate',
+    ]);
+    expect(DINOSAUR_RECIPE.steps.some((entry) => entry.rollDirection === 'close' || entry.id.includes('roll'))).toBe(false);
+    expect(JSON.stringify(DINOSAUR_RECIPE)).not.toContain('rollProgress');
+    expect(DINOSAUR_RECIPE.snapshots).not.toHaveProperty('neck');
+    expect(DINOSAUR_RECIPE.steps.find((entry) => entry.progressStage === 2 && entry.actionType === 'unfold')).toBeTruthy();
     expect(WHALE_RECIPE.steps[0]?.id).toBe('diag-fold');
     expect(FOX_RECIPE.steps[0]?.id).toBe('fox-half');
     expect(BAT_RECIPE.steps[0]?.id).toBe('bat-triangle');
@@ -203,37 +259,53 @@ describe('origami dinosaur recipe', () => {
     expect(dinosaurSpineMarks().length).toBeGreaterThanOrEqual(4);
   });
 
-  it('advances all nine stages, then clears roll progress on restart', () => {
+  it('advances all eight stages, then restarts with no roll state', () => {
     const engine = new OrigamiEngine(DINOSAUR_RECIPE, DINOSAUR_NAMED);
-    expect(engine.rollProgress).toBe(0);
+    expect(engine).not.toHaveProperty('rollProgress');
     expect(engine.currentStep?.id).toBe('dino-triangle');
     const stages: number[] = [];
+    const ids: string[] = [];
     while (engine.currentStep && stages.length < 16) {
       stages.push(engine.currentStep.progressStage ?? 0);
-      if (engine.currentStep.id === 'dino-roll') {
-        expect(engine.rollProgress).toBe(0);
+      ids.push(engine.currentStep.id);
+      if (engine.currentStep.progressStage === 2) {
+        expect(engine.progress().committedCount).toBe(1);
       }
       commitCurrent(engine);
     }
     expect(engine.isComplete()).toBe(true);
-    expect(engine.rollProgress).toBe(1);
-    expect(stages).toEqual([1, 2, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(stages).toEqual([1, 2, 2, 3, 4, 5, 6, 7, 8]);
+    expect(ids).not.toContain('dino-roll');
+    expect(ids.at(-1)).toBe('dino-decorate');
+    expect(engine.progress().totalSteps).toBe(8);
     engine.reset(DINOSAUR_RECIPE, DINOSAUR_NAMED);
-    expect(engine.rollProgress).toBe(0);
+    expect(engine).not.toHaveProperty('rollProgress');
     expect(engine.currentStep?.id).toBe('dino-triangle');
-    expect(engine.isStepCommitted('dino-roll')).toBe(false);
+    expect(engine.isComplete()).toBe(false);
+    expect(engine.isStepCommitted('dino-head')).toBe(false);
+    expect(engine.isStepCommitted('dino-foot')).toBe(false);
+    expect(engine.isStepCommitted('dino-decorate')).toBe(false);
+    expect(engine.progress()).toMatchObject({ committedCount: 0, totalSteps: 8, activeIndex: 0 });
     expect(engine.fromSnapshot?.named?.TL?.[0]).toBeLessThan(-0.09);
     expect(engine.fromSnapshot?.named?.TR?.[1]).toBeGreaterThan(0.09);
   });
 
-  it('hides neck borders that sit under a higher sheet and keeps the outer edge', () => {
-    const neck = DINOSAUR_RECIPE.snapshots.neck!;
-    const mesh = buildPaperMesh(neck, false);
-    expect(bordersUnderHigherFace(neck, mesh)).toBe(0);
-    expect(edgeVerticesNear(mesh, [DINOSAUR_NECK_WIDTH, 0, 0], 0.012) + edgeVerticesNear(mesh, [0, 0.04, 0], 0.012)).toBeGreaterThan(0);
-    const top = neck.faces.reduce((max, face) => Math.max(max, face.layer), 0);
-    expect(top).toBeGreaterThan(2);
+  it('keeps the outer head and neck edges and hides borders under a higher sheet', () => {
+    const headed = DINOSAUR_RECIPE.snapshots.headed!;
+    const finished = DINOSAUR_RECIPE.snapshots.dinosaur!;
+    for (const snapshot of [headed, finished]) {
+      const mesh = buildPaperMesh(snapshot, false);
+      expect(bordersUnderHigherFace(snapshot, mesh)).toBe(0);
+      expect(edgeVerticesNear(mesh, DINOSAUR_HEAD_TIP, 0.012)).toBeGreaterThan(0);
+    }
+    const top = finished.faces.reduce((max, face) => Math.max(max, face.layer), 0);
+    expect(top).toBeGreaterThan(1);
     expect(top).toBeLessThan(16);
+    const materials = createPaperMaterials(origamiPaperMaterial(DINOSAUR_PAPER_COLOR));
+    expect(materials.length).toBeGreaterThan(0);
+    for (const material of materials) {
+      expect(material.depthTest).toBe(true);
+    }
   });
 });
 
