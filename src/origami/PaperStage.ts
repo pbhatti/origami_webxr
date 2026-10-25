@@ -12,6 +12,7 @@ import {
 } from 'three';
 import { BatCreature } from '../animation/BatCreature.ts';
 import { DinosaurCreature } from '../animation/DinosaurCreature.ts';
+import { LadybugCreature } from '../animation/LadybugCreature.ts';
 import { OwlCreature } from '../animation/OwlCreature.ts';
 import { TurtleCreature } from '../animation/TurtleCreature.ts';
 import { CompletedOrigamiManipulator } from '../animation/CompletedOrigamiManipulator.ts';
@@ -49,11 +50,13 @@ import { validateBatGeometry } from './batFinalShape.ts';
 import { BAT_NAMED, BAT_PAPER_COLOR, BAT_RECIPE } from './recipes/bat.recipe.ts';
 import { DINOSAUR_NAMED, DINOSAUR_PAPER_COLOR, DINOSAUR_RECIPE } from './recipes/dinosaur.recipe.ts';
 import { DinosaurPinch } from './DinosaurPinch.ts';
+import { LadybugPinch } from './LadybugPinch.ts';
 import { OwlPinch } from './OwlPinch.ts';
 import { TurtlePinch } from './TurtlePinch.ts';
 import { ScissorsCut } from './ScissorsCut.ts';
 import { FOX_NAMED, FOX_PAPER_COLOR, FOX_RECIPE } from './recipes/fox.recipe.ts';
 import { OWL_NAMED, OWL_PAPER_COLOR, OWL_RECIPE } from './recipes/owl.recipe.ts';
+import { LADYBUG_NAMED, LADYBUG_PAPER_COLOR, LADYBUG_RECIPE } from './recipes/ladybug.recipe.ts';
 import { TURTLE_NAMED, TURTLE_PAPER_COLOR, TURTLE_RECIPE } from './recipes/turtle.recipe.ts';
 import { theme } from '../theme/tokens.ts';
 import { WHALE_NAMED, WHALE_RECIPE } from './recipes/whale.recipe.ts';
@@ -93,10 +96,12 @@ export class PaperStage {
   readonly owlCreature = new OwlCreature();
   readonly turtleCreature = new TurtleCreature();
   readonly dinosaurCreature = new DinosaurCreature();
+  readonly ladybugCreature = new LadybugCreature();
   readonly cutter = new ScissorsCut();
   readonly owlPinch = new OwlPinch();
   readonly turtlePinch = new TurtlePinch();
   readonly dinosaurPinch = new DinosaurPinch();
+  readonly ladybugPinch = new LadybugPinch();
   private faceRevealMs = -1;
   private faceCommit = false;
   private owlOpenStepId: string | null = null;
@@ -113,7 +118,7 @@ export class PaperStage {
   private boundRootId: string;
   readonly feedback: FoldFeedbackController;
 
-  get creature(): WhaleCreature | FoxCreature | BatCreature | OwlCreature | TurtleCreature | DinosaurCreature {
+  get creature(): WhaleCreature | FoxCreature | BatCreature | OwlCreature | TurtleCreature | DinosaurCreature | LadybugCreature {
     if (this.animalId === 'fox') {
       return this.foxCreature;
     }
@@ -128,6 +133,9 @@ export class PaperStage {
     }
     if (this.animalId === 'dinosaur') {
       return this.dinosaurCreature;
+    }
+    if (this.animalId === 'ladybug') {
+      return this.ladybugCreature;
     }
     return this.whaleCreature;
   }
@@ -161,6 +169,7 @@ export class PaperStage {
     this.owlPinch.attach(this.sheet.group);
     this.turtlePinch.attach(this.sheet.group);
     this.dinosaurPinch.attach(this.sheet.group);
+    this.ladybugPinch.attach(this.sheet.group);
     this.scaleRoot.add(this.sheet.group);
     this.paperRoot.add(
       this.scaleRoot,
@@ -207,6 +216,7 @@ export class PaperStage {
     world.scene.add(this.owlCreature.group);
     world.scene.add(this.turtleCreature.group);
     world.scene.add(this.dinosaurCreature.group);
+    world.scene.add(this.ladybugCreature.group);
 
     this.unsubscribe = world.visibilityState.subscribe((state) => {
       this.studio.visible = state === VisibilityState.NonImmersive;
@@ -256,10 +266,12 @@ export class PaperStage {
     this.owlCreature.stop();
     this.turtleCreature.stop();
     this.dinosaurCreature.stop();
+    this.ladybugCreature.stop();
     this.cutter.reset();
     this.owlPinch.reset();
     this.turtlePinch.reset();
     this.dinosaurPinch.reset();
+    this.ladybugPinch.reset();
     this.faceRevealMs = -1;
     this.faceCommit = false;
     this.owlOpenStepId = null;
@@ -281,6 +293,9 @@ export class PaperStage {
     } else if (id === 'dinosaur') {
       this.engine.reset(DINOSAUR_RECIPE, DINOSAUR_NAMED);
       this.sheet.setColor(DINOSAUR_PAPER_COLOR);
+    } else if (id === 'ladybug') {
+      this.engine.reset(LADYBUG_RECIPE, LADYBUG_NAMED);
+      this.sheet.setColor(LADYBUG_PAPER_COLOR);
     } else {
       this.engine.reset(WHALE_RECIPE, WHALE_NAMED);
       this.sheet.setColor(FOLD_PAPER_COLOR);
@@ -486,6 +501,7 @@ export class PaperStage {
     this.owlPinch.reset();
     this.turtlePinch.reset();
     this.dinosaurPinch.reset();
+    this.ladybugPinch.reset();
     this.faceRevealMs = -1;
     this.faceCommit = false;
     this.owlOpenStepId = null;
@@ -495,6 +511,7 @@ export class PaperStage {
     this.owlCreature.stop();
     this.turtleCreature.stop();
     this.dinosaurCreature.stop();
+    this.ladybugCreature.stop();
     this.manipulator.sleep();
   }
 
@@ -584,6 +601,7 @@ export class PaperStage {
     this.syncOwlPresentation();
     this.syncTurtlePresentation();
     this.syncDinosaurPresentation();
+    this.syncLadybugPresentation();
   }
 
   commitProgress(): void {
@@ -628,11 +646,13 @@ export class PaperStage {
     this.owlPinch.sync(this.animalId === 'owl' ? this.engine.currentStep?.id ?? null : null);
     this.turtlePinch.sync(this.animalId === 'turtle' ? this.engine.currentStep?.id ?? null : null);
     this.dinosaurPinch.sync(this.animalId === 'dinosaur' ? this.engine.currentStep?.id ?? null : null);
+    this.ladybugPinch.sync(this.animalId === 'ladybug' ? this.engine.currentStep?.id ?? null : null);
     if (!this.exitPrompt) {
       this.cutter.tick(1000 / 72);
       this.owlPinch.tick(1000 / 72);
       this.turtlePinch.tick(1000 / 72);
       this.dinosaurPinch.tick(1000 / 72);
+      this.ladybugPinch.tick(1000 / 72);
       this.tickFaceReveal(1000 / 72);
     }
     this.guides.tick(1 / 72, this.guideState(this.engine.enginePhase === 'folding'));
@@ -649,6 +669,7 @@ export class PaperStage {
     this.syncOwlPresentation();
     this.syncTurtlePresentation();
     this.syncDinosaurPresentation();
+    this.syncLadybugPresentation();
   }
 
   dispose(): void {
@@ -661,6 +682,7 @@ export class PaperStage {
     this.owlCreature.stop();
     this.turtleCreature.stop();
     this.dinosaurCreature.stop();
+    this.ladybugCreature.stop();
     this.manipulator.dispose();
     disposeObject3D(this.studio);
     disposeObject3D(this.paperRoot);
@@ -670,6 +692,7 @@ export class PaperStage {
     disposeObject3D(this.owlCreature.group);
     disposeObject3D(this.turtleCreature.group);
     disposeObject3D(this.dinosaurCreature.group);
+    disposeObject3D(this.ladybugCreature.group);
     this.studio.removeFromParent();
     this.paperRoot.removeFromParent();
     this.whaleCreature.group.removeFromParent();
@@ -678,6 +701,7 @@ export class PaperStage {
     this.owlCreature.group.removeFromParent();
     this.turtleCreature.group.removeFromParent();
     this.dinosaurCreature.group.removeFromParent();
+    this.ladybugCreature.group.removeFromParent();
   }
 
   blocksGuidedTool(): boolean {
@@ -694,6 +718,12 @@ export class PaperStage {
     if (
       this.animalId === 'dinosaur' &&
       (stepId === 'dino-decorate' || stepId?.endsWith('-open') || this.dinosaurPinch.visualState === 'playing')
+    ) {
+      return true;
+    }
+    if (
+      this.animalId === 'ladybug' &&
+      (stepId === 'ladybug-decorate' || stepId?.endsWith('-open') || this.ladybugPinch.visualState === 'playing')
     ) {
       return true;
     }
@@ -716,7 +746,7 @@ export class PaperStage {
   consumeOwlOpen(): boolean {
     const id = this.engine.currentStep?.id ?? null;
     if (
-      (this.animalId !== 'owl' && this.animalId !== 'turtle' && this.animalId !== 'dinosaur') ||
+      (this.animalId !== 'owl' && this.animalId !== 'turtle' && this.animalId !== 'dinosaur' && this.animalId !== 'ladybug') ||
       this.engine.isBusy() ||
       !id?.endsWith('-open')
     ) {
@@ -760,6 +790,17 @@ export class PaperStage {
 
   beginDinosaurLife(): boolean {
     return this.dinosaurPinch.begin();
+  }
+
+  consumeLadybugCommit(): boolean {
+    if (this.animalId !== 'ladybug' || this.engine.isBusy() || this.engine.currentStep?.id !== 'ladybug-decorate') {
+      return false;
+    }
+    return this.ladybugPinch.consumeCommit();
+  }
+
+  beginLadybugLife(): boolean {
+    return this.ladybugPinch.begin();
   }
 
   owlDebug(): { sides: string; decor: string } {
@@ -883,6 +924,30 @@ export class PaperStage {
     return committed;
   }
 
+  prepareLadybugStep(stage: number): number {
+    const target = Math.min(7, Math.max(1, Math.round(stage)));
+    this.ladybugPinch.reset();
+    this.owlOpenStepId = null;
+    this.ladybugCreature.stop();
+    this.engine.reset(LADYBUG_RECIPE, LADYBUG_NAMED);
+    let committed = 0;
+    while (
+      this.engine.currentStep &&
+      (this.engine.currentStep.progressStage ?? 1) < target &&
+      committed < 16
+    ) {
+      this.engine.assistToTarget();
+      for (let frame = 0; frame < 40 && this.engine.isAnimating(); frame += 1) {
+        this.engine.tick(32);
+      }
+      this.commitProgress();
+      committed += 1;
+    }
+    this.applyFoldVisuals(false);
+    this.commitProgress();
+    return committed;
+  }
+
   private replayBatUntil(done: (stepId: string, stage: number) => boolean): number {
     this.cutter.reset();
     this.faceRevealMs = -1;
@@ -964,6 +1029,24 @@ export class PaperStage {
     this.turtleCreature.present(this.sheet.group, showing);
     if (!this.turtleCreature.active) {
       this.turtleCreature.setReveal(this.turtlePinch.progress);
+    }
+  }
+
+  private syncLadybugPresentation(): void {
+    if (this.animalId !== 'ladybug') {
+      if (!this.ladybugCreature.active) {
+        this.ladybugCreature.present(this.sheet.group, false);
+      }
+      return;
+    }
+    const showing =
+      this.ladybugPinch.visualState === 'playing' ||
+      this.ladybugPinch.visualState === 'done' ||
+      this.engine.isComplete() ||
+      this.ladybugCreature.active;
+    this.ladybugCreature.present(this.sheet.group, showing);
+    if (!this.ladybugCreature.active) {
+      this.ladybugCreature.setReveal(this.ladybugPinch.progress);
     }
   }
 

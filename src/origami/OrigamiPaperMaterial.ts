@@ -22,6 +22,8 @@ export const MOUSE_PAPER_COLOR = '#6eb0d4';
 const EXACT: Record<string, { back: string; edge: string }> = {
   '#91c943': { back: '#b7df7a', edge: '#648c38' },
   '#ffc547': { back: '#ffe29a', edge: '#c98c24' },
+  '#f45132': { back: '#fff1ea', edge: '#bd3527' },
+  '#27b9ea': { back: '#f8fcff', edge: '#1688b5' },
 };
 
 const DESIGNED: Array<{ front: string; edgeHue: number }> = [

@@ -195,6 +195,7 @@ export class App {
           owlPinch: this.stage.owlPinch,
           turtlePinch: this.stage.turtlePinch,
           dinosaurPinch: this.stage.dinosaurPinch,
+          ladybugPinch: this.stage.ladybugPinch,
           mover: this.stage.mover,
           indicators: this.indicators,
           debugPanel: this.debugPanel,
@@ -874,6 +875,8 @@ export class App {
         this.stage.beginTurtleLife();
       } else if (this.stage.activeAnimal === 'dinosaur') {
         this.stage.beginDinosaurLife();
+      } else if (this.stage.activeAnimal === 'ladybug') {
+        this.stage.beginLadybugLife();
       } else {
         this.stage.cutter.begin();
       }
@@ -891,6 +894,10 @@ export class App {
       this.enterSnapFromFold(true);
     }
     if (!engine.isBusy() && this.stage.consumeDinosaurCommit()) {
+      engine.assistToTarget();
+      this.enterSnapFromFold(true);
+    }
+    if (!engine.isBusy() && this.stage.consumeLadybugCommit()) {
       engine.assistToTarget();
       this.enterSnapFromFold(true);
     }
@@ -1117,6 +1124,11 @@ export class App {
       const stage = Number(event.code.slice(5));
       if (this.stage.activeAnimal === 'dinosaur') {
         this.stage.prepareDinosaurStep(stage);
+        if (this.machine.state !== 'INSTRUCTION') {
+          this.machine.force('INSTRUCTION');
+        }
+      } else if (this.stage.activeAnimal === 'ladybug') {
+        this.stage.prepareLadybugStep(stage);
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
         }

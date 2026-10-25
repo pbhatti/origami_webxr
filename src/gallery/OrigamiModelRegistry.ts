@@ -1,6 +1,7 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  CircleGeometry,
   Color,
   ConeGeometry,
   DoubleSide,
@@ -37,6 +38,15 @@ import {
   DINOSAUR_RECIPE,
   dinosaurSpineMarks,
 } from '../origami/recipes/dinosaur.recipe.ts';
+import {
+  LADYBUG_EYES,
+  LADYBUG_FEATURE_Z,
+  LADYBUG_MARK_COLOR,
+  LADYBUG_PAPER_COLOR,
+  LADYBUG_RECIPE,
+  LADYBUG_SEAM,
+  LADYBUG_SPOTS,
+} from '../origami/recipes/ladybug.recipe.ts';
 import { WHALE_RECIPE } from '../origami/recipes/whale.recipe.ts';
 import type { MeshSnapshot } from '../origami/types.ts';
 import { ANIMALS, type AnimalId } from './animals.ts';
@@ -358,6 +368,85 @@ function dinosaurModel(): Group {
   return group;
 }
 
+function frameDecor(snapshot: MeshSnapshot, decor: Group): void {
+  const built = buildPaperMesh(snapshot, true);
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < built.positions.length; index += 3) {
+    const x = built.positions[index] ?? 0;
+    const y = built.positions[index + 1] ?? 0;
+    const z = built.positions[index + 2] ?? 0;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    minZ = Math.min(minZ, z);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    maxZ = Math.max(maxZ, z);
+  }
+  const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.001);
+  const scale = 0.078 / span;
+  const pivot = new Group();
+  pivot.rotation.x = -0.18;
+  const fitted = new Group();
+  fitted.scale.setScalar(scale);
+  for (const child of [...decor.children]) {
+    child.position.x -= (minX + maxX) / 2;
+    child.position.y -= (minY + maxY) / 2;
+    child.position.z -= (minZ + maxZ) / 2;
+    fitted.add(child);
+  }
+  pivot.add(fitted);
+  decor.add(pivot);
+}
+
+function ladybugModel(): Group {
+  const snapshot = LADYBUG_RECIPE.snapshots.ladybug;
+  const group = snapshotModel('ladybug', snapshot, LADYBUG_PAPER_COLOR);
+  if (!snapshot) {
+    return group;
+  }
+  const decor = new Group();
+  decor.name = 'ladybug-preview-decor';
+  const mark = paperMat(LADYBUG_MARK_COLOR);
+  for (const eye of LADYBUG_EYES) {
+    const mesh = new Mesh(new CircleGeometry(eye.radius, 18), mark);
+    mesh.position.set(eye.at[0], eye.at[1], LADYBUG_FEATURE_Z);
+    decor.add(mesh);
+  }
+  for (const spot of LADYBUG_SPOTS) {
+    const mesh = new Mesh(new CircleGeometry(spot.radius, 18), mark);
+    mesh.position.set(spot.at[0], spot.at[1], LADYBUG_FEATURE_Z);
+    decor.add(mesh);
+  }
+  const { from, to, width } = LADYBUG_SEAM;
+  const half = width / 2;
+  const seamGeo = new BufferGeometry();
+  seamGeo.setAttribute(
+    'position',
+    new BufferAttribute(
+      new Float32Array([
+        from[0] - half, from[1], LADYBUG_FEATURE_Z,
+        from[0] + half, from[1], LADYBUG_FEATURE_Z,
+        to[0] + half, to[1], LADYBUG_FEATURE_Z,
+        from[0] - half, from[1], LADYBUG_FEATURE_Z,
+        to[0] + half, to[1], LADYBUG_FEATURE_Z,
+        to[0] - half, to[1], LADYBUG_FEATURE_Z,
+      ]),
+      3,
+    ),
+  );
+  const seam = new Mesh(seamGeo, paperMat(LADYBUG_MARK_COLOR));
+  seam.name = 'ladybug-preview-seam';
+  decor.add(seam);
+  frameDecor(snapshot, decor);
+  group.add(decor);
+  return group;
+}
+
 function owlModel(): Group {
   const group = new Group();
   group.add(
@@ -403,6 +492,7 @@ const BUILDERS: Record<AnimalId, (color: string) => Group> = {
   owl: () => owlModel(),
   turtle: () => turtleModel(),
   dinosaur: () => dinosaurModel(),
+  ladybug: () => ladybugModel(),
   rabbit: (color) =>
     poly(color, [
       triangle(-0.03, -0.02, 0.03, -0.02, 0, 0.03),

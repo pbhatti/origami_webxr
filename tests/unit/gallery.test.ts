@@ -11,10 +11,11 @@ import { OWL_PAPER_COLOR } from '../../src/origami/recipes/owl.recipe.ts';
 import { DINOSAUR_PAPER_COLOR } from '../../src/origami/recipes/dinosaur.recipe.ts';
 import { TURTLE_PAPER_COLOR } from '../../src/origami/recipes/turtle.recipe.ts';
 import { FOX_PAPER_COLOR } from '../../src/origami/recipes/fox.recipe.ts';
+import { LADYBUG_PAPER_COLOR } from '../../src/origami/recipes/ladybug.recipe.ts';
 
 describe('origami animals gallery', () => {
   it('lists creations with Whale, Fox, and Bat as the playable set', () => {
-    expect(ANIMALS).toHaveLength(20);
+    expect(ANIMALS).toHaveLength(21);
     expect(GALLERY_COLUMNS).toBe(4);
     expect(ANIMALS.map((animal) => animal.name)).toEqual([
       'Rabbit',
@@ -37,6 +38,7 @@ describe('origami animals gallery', () => {
       'Swan',
       'Cat (Sitting)',
       'Dog (Standing)',
+      'Ladybug',
     ]);
     const firstRow = ANIMALS.filter((animal) => animal.row === 0)
       .sort((a, b) => a.column - b.column)
@@ -66,7 +68,7 @@ describe('origami animals gallery', () => {
   });
 
   it('makes whale, fox, and bat playable from the gallery', () => {
-    expect(playableAnimals().map((animal) => animal.id)).toEqual(['whale', 'fox', 'bat', 'owl', 'turtle', 'dinosaur']);
+    expect(playableAnimals().map((animal) => animal.id)).toEqual(['whale', 'fox', 'bat', 'owl', 'turtle', 'dinosaur', 'ladybug']);
     expect(ANIMALS.find((animal) => animal.id === 'whale')?.paperColor).toBe(FOLD_PAPER_COLOR);
     expect(ANIMALS.find((animal) => animal.id === 'fox')?.paperColor).toBe(FOX_PAPER_COLOR);
     expect(ANIMALS.find((animal) => animal.id === 'bat')?.paperColor).toBe(BAT_PAPER_COLOR);
@@ -76,6 +78,8 @@ describe('origami animals gallery', () => {
     expect(ANIMALS.find((animal) => animal.id === 'dinosaur')?.paperColor).toBe(DINOSAUR_PAPER_COLOR);
     expect(ANIMALS.find((animal) => animal.id === 'dinosaur')).toMatchObject({ row: 1, column: 3, playable: true });
     expect(ANIMALS.find((animal) => animal.id === 'crane')).toMatchObject({ row: 4, column: 3, playable: false });
+    expect(ANIMALS.find((animal) => animal.id === 'ladybug')?.paperColor).toBe(LADYBUG_PAPER_COLOR);
+    expect(ANIMALS.find((animal) => animal.id === 'ladybug')).toMatchObject({ row: 5, column: 0, playable: true, name: 'Ladybug' });
     expect(ANIMALS.find((animal) => animal.id === 'whale')).toMatchObject({ row: 0, column: 2 });
     expect(ANIMALS.find((animal) => animal.id === 'owl')).toMatchObject({ row: 1, column: 1 });
     expect(ANIMALS.filter((animal) => !animal.playable)).toHaveLength(14);
@@ -96,6 +100,8 @@ describe('origami animals gallery', () => {
     expect(routeAnimal('turtle', 'owl')).toEqual({ kind: 'launch', id: 'turtle' });
     expect(routeAnimal('dinosaur', null)).toEqual({ kind: 'launch', id: 'dinosaur' });
     expect(routeAnimal('dinosaur', 'turtle')).toEqual({ kind: 'launch', id: 'dinosaur' });
+    expect(routeAnimal('ladybug', null)).toEqual({ kind: 'launch', id: 'ladybug' });
+    expect(routeAnimal('ladybug', 'dinosaur')).toEqual({ kind: 'launch', id: 'ladybug' });
     expect(routeAnimal('crane', null)).toEqual({
       kind: 'coming-soon',
       id: 'crane',
