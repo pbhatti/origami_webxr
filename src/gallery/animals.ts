@@ -1,4 +1,5 @@
 import { FOLD_PAPER_COLOR } from '../origami/FoldPaper.ts';
+import { MOUSE_PAPER_COLOR } from '../origami/OrigamiPaperMaterial.ts';
 import { BAT_PAPER_COLOR } from '../origami/recipes/bat.recipe.ts';
 import { FOX_PAPER_COLOR } from '../origami/recipes/fox.recipe.ts';
 import { OWL_PAPER_COLOR } from '../origami/recipes/owl.recipe.ts';
@@ -50,7 +51,7 @@ export const ANIMALS: AnimalDefinition[] = [
   { id: 'dog', name: 'Dog', row: 2, column: 3, playable: false, paperColor: '#c4a574', approximation: true },
   { id: 'horse', name: 'Horse', row: 3, column: 0, playable: false, paperColor: '#8b6b4a', approximation: true },
   { id: 'dog-sitting', name: 'Dog (Sitting)', row: 3, column: 1, playable: false, paperColor: '#b08968', approximation: true },
-  { id: 'mouse', name: 'Mouse', row: 3, column: 2, playable: false, paperColor: '#d4c4c4', approximation: true },
+  { id: 'mouse', name: 'Mouse', row: 3, column: 2, playable: false, paperColor: MOUSE_PAPER_COLOR, approximation: true },
   { id: 'swan', name: 'Swan', row: 3, column: 3, playable: false, paperColor: '#f7f1e6', approximation: true },
   { id: 'cat-sitting', name: 'Cat (Sitting)', row: 4, column: 0, playable: false, paperColor: '#d9cbb8', approximation: true },
   { id: 'dog-standing', name: 'Dog (Standing)', row: 4, column: 1, playable: false, paperColor: '#c4a574', approximation: true },

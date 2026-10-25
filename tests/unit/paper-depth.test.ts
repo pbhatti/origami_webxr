@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { FoldPaper, deformFoldSnapshot } from '../../src/origami/FoldPaper.ts';
+import { FOLD_PAPER_COLOR, FoldPaper, deformFoldSnapshot } from '../../src/origami/FoldPaper.ts';
 import { BAT_RECIPE } from '../../src/origami/recipes/bat.recipe.ts';
 import { HALF_FOLD_RECIPE } from '../../src/origami/recipes/fixture-half-fold.ts';
 import { FOX_RECIPE } from '../../src/origami/recipes/fox.recipe.ts';
 import { OWL_RECIPE } from '../../src/origami/recipes/owl.recipe.ts';
 import { WHALE_RECIPE } from '../../src/origami/recipes/whale.recipe.ts';
 import {
+  PAPER_EDGE_WIDTH_M,
   PAPER_LAYER_GAP_M,
   PAPER_THICKNESS_M,
   buildPaperMesh,
+  type PaperMeshBuffers,
 } from '../../src/origami/paperDepth.ts';
+import { origamiPaperMaterial, paperLightness } from '../../src/origami/OrigamiPaperMaterial.ts';
+import { BAT_PAPER_COLOR } from '../../src/origami/recipes/bat.recipe.ts';
+import { FOX_PAPER_COLOR } from '../../src/origami/recipes/fox.recipe.ts';
+import { OWL_PAPER_COLOR } from '../../src/origami/recipes/owl.recipe.ts';
 import type { MeshSnapshot, Vec3 } from '../../src/origami/types.ts';
 
 function triangle(layer: number, indexOffset = 0): MeshSnapshot['faces'][number] {
@@ -63,12 +69,12 @@ describe('folded paper depth', () => {
     const mesh = buildPaperMesh(stacked, true);
     expect(mesh.faceCount).toBe(2);
     expect(mesh.positions.length).toBeGreaterThan(24 * 3);
-    const lowerFront = mesh.positions[2] ?? 0;
-    const upperFront = mesh.positions[24 * 3 + 2] ?? 0;
-    expect(lowerFront).toBeCloseTo(PAPER_THICKNESS_M, 5);
-    expect(upperFront - lowerFront).toBeCloseTo(PAPER_LAYER_GAP_M, 5);
-    expect(mesh.colors[0]).toBeGreaterThan(0.95);
-    expect(mesh.colors[24 * 3] ?? 0).toBeGreaterThan(0.95);
+    const front = groupZs(mesh, 0);
+    const back = groupZs(mesh, 1);
+    expect(front.max - back.min).toBeGreaterThan(PAPER_LAYER_GAP_M);
+    expect(front.max).toBeCloseTo(PAPER_LAYER_GAP_M + PAPER_THICKNESS_M, 4);
+    expect(back.min).toBeCloseTo(0, 4);
+    expect(front.mean).toBeGreaterThan(back.mean);
     expect(mesh.shadowPositions.length / 3).toBe(mesh.shadowColors.length / 4);
     if (mesh.shadowPositions.length > 0) {
       const shadow = bounds(mesh.shadowPositions);
@@ -137,15 +143,22 @@ describe('folded paper depth', () => {
     expect(mesh.positions.length / 3).toBeGreaterThan(48);
   });
 
-  it('uses a matte vertex-colored paper material', () => {
+  it('uses a matte two-tone paper material', () => {
     const paper = new FoldPaper();
     paper.setSnapshot(stacked);
     expect(paper.material.roughness).toBeCloseTo(0.92, 5);
     expect(paper.material.metalness).toBe(0);
-    expect(paper.material.vertexColors).toBe(true);
+    expect(paper.material.vertexColors).toBe(false);
     expect(paper.material.depthTest).toBe(true);
     expect(paper.material.depthWrite).toBe(true);
     expect(paper.material.transparent).toBe(false);
+    const materials = (paper.group.getObjectByName('paper-faces') as unknown as {
+      material: Array<{ color: { getHexString(): string }; roughness: number }>;
+    }).material;
+    expect(materials).toHaveLength(3);
+    expect(materials[0]?.color.getHexString()).not.toBe(materials[1]?.color.getHexString());
+    expect(materials[2]?.color.getHexString()).not.toBe(materials[0]?.color.getHexString());
+    expect(materials[1]?.roughness).toBeCloseTo(0.92, 5);
     expect(paper.layerCount).toBe(2);
     const position = paper.group.getObjectByName('paper-faces');
     expect(position).toBeTruthy();
@@ -293,7 +306,123 @@ describe('folded paper depth', () => {
     }
     expect(buildPaperMesh(OWL_RECIPE.snapshots.owl!, true).shadowPositions.length).toBeGreaterThan(9);
   });
+
+  it('shows the reverse side after a valley flip and keeps borders on the perimeter', () => {
+    const flat = buildPaperMesh(stacked, false);
+    const flatFront = groupZs(flat, 0);
+    const flatBack = groupZs(flat, 1);
+    expect(flatFront.mean).toBeGreaterThan(flatBack.mean);
+    expect(groupZs(flat, 2).count).toBeGreaterThan(0);
+
+    const flipped: MeshSnapshot = {
+      vertices: stacked.vertices,
+      faces: [
+        { id: 'face-0', vertices: [2, 1, 0], layer: 0, materialId: 'paper' },
+        { id: 'face-1', vertices: [5, 4, 3], layer: 1, materialId: 'paper' },
+      ],
+    };
+    const turned = buildPaperMesh(flipped, false);
+    expect(groupZs(turned, 0).mean).toBeLessThan(groupZs(turned, 1).mean);
+
+    const border = borderInteriorCount(flat, [
+      [0, 0, 0],
+      [0.1, 0, 0],
+      [0.05, 0.08, 0],
+    ], PAPER_EDGE_WIDTH_M + 0.001);
+    expect(border).toBe(0);
+  });
+
+  it('keeps a hidden flap border under the sheet that covers it', () => {
+    const covered = layered(
+      [
+        [0, 0, 0],
+        [0.12, 0, 0],
+        [0.06, 0.1, 0],
+        [0.035, 0.025, 0],
+        [0.085, 0.025, 0],
+        [0.06, 0.055, 0],
+        [0.02, 0.012, 0],
+        [0.1, 0.012, 0],
+        [0.06, 0.078, 0],
+      ],
+      [
+        ['base', [0, 1, 2], 0],
+        ['hidden', [3, 4, 5], 1],
+        ['cover', [6, 7, 8], 2],
+      ],
+    );
+    const mesh = buildPaperMesh(covered, false);
+    const coverBack = 2 * PAPER_LAYER_GAP_M;
+    let revealed = 0;
+    const group = mesh.groups.find((entry) => entry.materialIndex === 2);
+    const start = (group?.start ?? 0) * 3;
+    const end = start + (group?.count ?? 0) * 3;
+    for (let index = start; index < end; index += 3) {
+      const x = mesh.positions[index] ?? 0;
+      const y = mesh.positions[index + 1] ?? 0;
+      const z = mesh.positions[index + 2] ?? 0;
+      const insideCover = contains([
+        [0.02, 0.012, 0],
+        [0.1, 0.012, 0],
+        [0.06, 0.078, 0],
+      ], x, y) && distanceToEdges([
+        [0.02, 0.012, 0],
+        [0.1, 0.012, 0],
+        [0.06, 0.078, 0],
+      ], x, y) > PAPER_EDGE_WIDTH_M + 0.001;
+      if (insideCover && z > coverBack - 0.00005) {
+        revealed += 1;
+      }
+    }
+    expect(revealed).toBe(0);
+  });
+
+  it('gives every character two paper tones within about 10–20%', () => {
+    for (const front of [FOLD_PAPER_COLOR, FOX_PAPER_COLOR, BAT_PAPER_COLOR, OWL_PAPER_COLOR, '#6eb0d4']) {
+      const spec = origamiPaperMaterial(front);
+      const delta = paperLightness(spec.backColor) - paperLightness(spec.frontColor);
+      expect(delta).toBeGreaterThan(0.1);
+      expect(delta).toBeLessThan(0.22);
+      expect(paperLightness(spec.edgeColor)).toBeLessThan(paperLightness(spec.frontColor));
+      expect(spec.edgeWidth).toBeGreaterThan(0.0008);
+      expect(spec.edgeWidth).toBeLessThan(0.003);
+      expect(spec.paperThickness).toBe(PAPER_THICKNESS_M);
+    }
+  });
 });
+
+function groupZs(mesh: PaperMeshBuffers, materialIndex: number): { min: number; max: number; mean: number; count: number } {
+  const group = mesh.groups.find((entry) => entry.materialIndex === materialIndex);
+  if (!group || group.count === 0) {
+    return { min: 0, max: 0, mean: 0, count: 0 };
+  }
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let sum = 0;
+  for (let vertex = 0; vertex < group.count; vertex += 1) {
+    const z = mesh.positions[(group.start + vertex) * 3 + 2] ?? 0;
+    min = Math.min(min, z);
+    max = Math.max(max, z);
+    sum += z;
+  }
+  return { min, max, mean: sum / group.count, count: group.count };
+}
+
+function borderInteriorCount(mesh: PaperMeshBuffers, poly: Vec3[], margin: number): number {
+  const group = mesh.groups.find((entry) => entry.materialIndex === 2);
+  if (!group) {
+    return 0;
+  }
+  let count = 0;
+  for (let vertex = 0; vertex < group.count; vertex += 1) {
+    const x = mesh.positions[(group.start + vertex) * 3] ?? 0;
+    const y = mesh.positions[(group.start + vertex) * 3 + 1] ?? 0;
+    if (contains(poly, x, y) && distanceToEdges(poly, x, y) > margin) {
+      count += 1;
+    }
+  }
+  return count;
+}
 
 function layered(
   vertices: Vec3[],

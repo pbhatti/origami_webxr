@@ -12,7 +12,8 @@ import {
   Vector3,
 } from 'three';
 import { FOLD_PAPER_COLOR } from '../origami/FoldPaper.ts';
-import { PAPER_DEPTH, buildPaperMesh } from '../origami/paperDepth.ts';
+import { createPaperMaterials, origamiPaperMaterial } from '../origami/OrigamiPaperMaterial.ts';
+import { PAPER_DEPTH, buildPaperMesh, type PaperMeshBuffers } from '../origami/paperDepth.ts';
 import { BAT_PAPER_COLOR, BAT_RECIPE } from '../origami/recipes/bat.recipe.ts';
 import { OWL_BEAK_COLOR, OWL_EYE_COLOR, OWL_PAPER_COLOR, OWL_PUPIL_COLOR } from '../origami/recipes/owl.recipe.ts';
 import { FOX_PAPER_COLOR, FOX_RECIPE } from '../origami/recipes/fox.recipe.ts';
@@ -56,24 +57,26 @@ function paperMat(color: string): MeshStandardMaterial {
   return material;
 }
 
-function depthPaperMat(color: string): MeshStandardMaterial {
-  const key = `depth:${color}`;
-  const existing = shared.get(key);
-  if (existing) {
-    return existing;
+function paperFromBuilt(built: PaperMeshBuffers, color: string): Mesh {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(built.positions, 3));
+  geometry.setAttribute('normal', new BufferAttribute(built.normals, 3));
+  for (const group of built.groups) {
+    geometry.addGroup(group.start, group.count, group.materialIndex);
   }
-  const material = new MeshStandardMaterial({
-    color: new Color(color),
-    roughness: PAPER_DEPTH.roughness,
-    metalness: 0,
-    side: DoubleSide,
-    vertexColors: true,
-    transparent: false,
-    depthTest: true,
-    depthWrite: true,
-  });
-  shared.set(key, material);
-  return material;
+  return new Mesh(geometry, createPaperMaterials(origamiPaperMaterial(color)));
+}
+
+function shadowFromBuilt(built: PaperMeshBuffers): Mesh | null {
+  if (built.shadowPositions.length < 9) {
+    return null;
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(built.shadowPositions, 3));
+  geometry.setAttribute('color', new BufferAttribute(built.shadowColors, 4));
+  const shadow = new Mesh(geometry, contactShadows());
+  shadow.renderOrder = 0;
+  return shadow;
 }
 
 function geometryFromTris(tris: Tris): BufferGeometry {
@@ -121,20 +124,28 @@ function fit(group: Group, span = 0.078): Group {
 }
 
 function poly(color: string, layers: Tris[]): Group {
-  const group = new Group();
-  layers.forEach((tris, index) => {
-    const mesh = meshFromTris(`layer-${index}-${tris.join(',')}`, tris, color);
-    mesh.position.z = index * 0.0012;
-    group.add(mesh);
-    if (index > 0) {
-      const shadow = new Mesh(mesh.geometry, contactShadows());
-      shadow.position.z = (index - 1) * 0.0012 + 0.00035;
-      shadow.scale.set(1.035, 1.035, 1);
-      shadow.renderOrder = 0;
-      shadow.name = `layer-shadow-${index}`;
-      group.add(shadow);
+  const vertices: MeshSnapshot['vertices'] = [];
+  const faces: MeshSnapshot['faces'] = [];
+  layers.forEach((tris, layer) => {
+    for (let index = 0; index + 8 < tris.length; index += 9) {
+      const base = vertices.length;
+      vertices.push(
+        [tris[index] ?? 0, tris[index + 1] ?? 0, tris[index + 2] ?? 0],
+        [tris[index + 3] ?? 0, tris[index + 4] ?? 0, tris[index + 5] ?? 0],
+        [tris[index + 6] ?? 0, tris[index + 7] ?? 0, tris[index + 8] ?? 0],
+      );
+      faces.push({ id: `poly-${layer}-${index}`, vertices: [base, base + 1, base + 2], layer, materialId: 'paper' });
     }
   });
+  const group = new Group();
+  const built = buildPaperMesh({ vertices, faces }, true);
+  const mesh = paperFromBuilt(built, color);
+  group.add(mesh);
+  const shadow = shadowFromBuilt(built);
+  if (shadow) {
+    shadow.name = 'poly-contact-shadow';
+    group.add(shadow);
+  }
   return fit(group);
 }
 
@@ -156,7 +167,9 @@ function framedPaper(id: string, snapshot: MeshSnapshot): { paper: BufferGeometr
   paper = new BufferGeometry();
   paper.setAttribute('position', new BufferAttribute(built.positions, 3));
   paper.setAttribute('normal', new BufferAttribute(built.normals, 3));
-  paper.setAttribute('color', new BufferAttribute(built.colors, 3));
+  for (const group of built.groups) {
+    paper.addGroup(group.start, group.count, group.materialIndex);
+  }
   shadow = new BufferGeometry();
   const shadowPositions = built.shadowPositions.length >= 9 ? built.shadowPositions : new Float32Array(9);
   const shadowColors = built.shadowColors.length >= 12 ? built.shadowColors : new Float32Array(12);
@@ -183,7 +196,7 @@ function framedPaper(id: string, snapshot: MeshSnapshot): { paper: BufferGeometr
 
 function addFramedPaper(group: Group, id: string, snapshot: MeshSnapshot, color: string): void {
   const framed = framedPaper(id, snapshot);
-  const mesh = new Mesh(framed.paper, depthPaperMat(color));
+  const mesh = new Mesh(framed.paper, createPaperMaterials(origamiPaperMaterial(color)));
   const shadow = new Mesh(framed.shadow, contactShadows());
   mesh.rotation.x = -0.18;
   shadow.rotation.x = -0.18;
@@ -213,21 +226,14 @@ function foxModel(): Group {
 function paperGroupFromSnapshot(snapshot: MeshSnapshot, color: string, name: string): Group {
   const group = new Group();
   const built = buildPaperMesh(snapshot, true);
-  const paper = new BufferGeometry();
-  paper.setAttribute('position', new BufferAttribute(built.positions, 3));
-  paper.setAttribute('normal', new BufferAttribute(built.normals, 3));
-  paper.setAttribute('color', new BufferAttribute(built.colors, 3));
-  const shadowGeo = new BufferGeometry();
-  const shadowPositions = built.shadowPositions.length >= 9 ? built.shadowPositions : new Float32Array(9);
-  const shadowColors = built.shadowColors.length >= 12 ? built.shadowColors : new Float32Array(12);
-  shadowGeo.setAttribute('position', new BufferAttribute(shadowPositions, 3));
-  shadowGeo.setAttribute('color', new BufferAttribute(shadowColors, 4));
-  const mesh = new Mesh(paper, depthPaperMat(color));
+  const mesh = paperFromBuilt(built, color);
   mesh.name = name;
-  const shadow = new Mesh(shadowGeo, contactShadows());
-  shadow.renderOrder = 0;
-  shadow.name = `${name}-shadow`;
-  group.add(mesh, shadow);
+  group.add(mesh);
+  const shadow = shadowFromBuilt(built);
+  if (shadow) {
+    shadow.name = `${name}-shadow`;
+    group.add(shadow);
+  }
   return group;
 }
 

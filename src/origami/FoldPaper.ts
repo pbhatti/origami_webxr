@@ -9,30 +9,23 @@ import {
   LineSegments,
   Mesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
 } from 'three';
+import type { MeshStandardMaterial } from 'three';
 import { FOX_SHAPE_INSPECTOR } from './foxFinalShape.ts';
 import { clamp, lerp3 } from '../utils/math.ts';
 import { rotateAroundHinge } from './CreaseSolver.ts';
 import { copy3 } from './creaseMath.ts';
 import { deformByHinge } from './MeshSplitter.ts';
+import {
+  FOLD_PAPER_COLOR,
+  applyPaperMaterial,
+  createPaperMaterials,
+  origamiPaperMaterial,
+} from './OrigamiPaperMaterial.ts';
 import { PAPER_DEPTH, buildPaperMesh, paperDepthToken } from './paperDepth.ts';
 import { interpolatesMesh, stepActionType, type FoldStep, type MeshSnapshot, type Vec3 } from './types.ts';
 
-export const FOLD_PAPER_COLOR = '#e24a1a';
-
-function paperMat(color: string): MeshStandardMaterial {
-  return new MeshStandardMaterial({
-    color: new Color(color),
-    roughness: PAPER_DEPTH.roughness,
-    metalness: 0,
-    side: DoubleSide,
-    vertexColors: true,
-    transparent: false,
-    depthTest: true,
-    depthWrite: true,
-  });
-}
+export { FOLD_PAPER_COLOR };
 
 function contactShadowMat(): MeshBasicMaterial {
   return new MeshBasicMaterial({
@@ -127,15 +120,18 @@ export class FoldPaper {
   private readonly shadowMesh: Mesh;
   private readonly layerBounds: LineSegments;
   private readonly creaseAxes: LineSegments;
+  private readonly materials: MeshStandardMaterial[];
   private geometry = new BufferGeometry();
   private shadowGeometry = new BufferGeometry();
   private builtKey = '';
   private faceCount = 0;
+  private frontColor = FOLD_PAPER_COLOR;
   private lastSnapshot: MeshSnapshot | null = null;
 
   constructor() {
     this.group.name = 'fold-fly-paper-sheet';
-    this.mesh = new Mesh(this.geometry, paperMat(FOLD_PAPER_COLOR));
+    this.materials = createPaperMaterials(origamiPaperMaterial(FOLD_PAPER_COLOR));
+    this.mesh = new Mesh(this.geometry, this.materials);
     this.mesh.name = 'paper-faces';
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
@@ -163,7 +159,7 @@ export class FoldPaper {
   }
 
   get material(): MeshStandardMaterial {
-    return this.mesh.material as MeshStandardMaterial;
+    return this.materials[0] ?? (this.mesh.material as MeshStandardMaterial);
   }
 
   get meshId(): string {
@@ -175,20 +171,23 @@ export class FoldPaper {
   }
 
   setColor(color: string): void {
-    this.material.color.set(color);
+    this.frontColor = color;
+    applyPaperMaterial(this.materials, origamiPaperMaterial(color));
   }
 
   /** Warm the paper slightly while it is held. The shell geometry stays put. */
   setGrabHighlight(active: boolean): void {
-    this.material.emissive.set(active ? 0x6a4332 : 0x000000);
-    this.material.emissiveIntensity = active ? 0.22 : 0;
+    for (const material of this.materials) {
+      material.emissive.set(active ? 0x6a4332 : 0x000000);
+      material.emissiveIntensity = active ? 0.22 : 0;
+    }
   }
 
   syncDepthDebug(): void {
     this.layerBounds.visible = PAPER_DEPTH.showLayerBounds;
     this.creaseAxes.visible = PAPER_DEPTH.showCreaseAxes;
     this.shadowMesh.visible = PAPER_DEPTH.shadows && PAPER_DEPTH.showShadowMeshes;
-    this.material.roughness = PAPER_DEPTH.roughness;
+    applyPaperMaterial(this.materials, origamiPaperMaterial(this.frontColor));
     const shadowMaterial = this.shadowMesh.material as MeshBasicMaterial;
     shadowMaterial.opacity = PAPER_DEPTH.contactShadowOpacity;
     if (this.lastSnapshot && paperDepthToken() !== this.shadowToken()) {
@@ -199,9 +198,12 @@ export class FoldPaper {
 
   applyInspector(active = true): void {
     const inspect = active && FOX_SHAPE_INSPECTOR.enabled;
-    this.material.wireframe = inspect && FOX_SHAPE_INSPECTOR.wireframe;
-    this.material.side = inspect && !FOX_SHAPE_INSPECTOR.disableBackfaceCulling ? FrontSide : DoubleSide;
-    this.material.needsUpdate = true;
+    const side = inspect && !FOX_SHAPE_INSPECTOR.disableBackfaceCulling ? FrontSide : DoubleSide;
+    for (const material of this.materials) {
+      material.wireframe = inspect && FOX_SHAPE_INSPECTOR.wireframe;
+      material.side = side;
+      material.needsUpdate = true;
+    }
   }
 
   apply(step: FoldStep | null, fromSnap: MeshSnapshot | null, toSnap: MeshSnapshot | null, angleDeg: number): void {
@@ -228,7 +230,9 @@ export class FoldPaper {
     this.geometry = new BufferGeometry();
     this.geometry.setAttribute('position', new BufferAttribute(built.positions, 3));
     this.geometry.setAttribute('normal', new BufferAttribute(built.normals, 3));
-    this.geometry.setAttribute('color', new BufferAttribute(built.colors, 3));
+    for (const group of built.groups) {
+      this.geometry.addGroup(group.start, group.count, group.materialIndex);
+    }
     this.mesh.geometry = this.geometry;
     this.shadowGeometry.dispose();
     this.shadowGeometry = new BufferGeometry();

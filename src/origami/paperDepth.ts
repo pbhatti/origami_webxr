@@ -7,6 +7,8 @@ export const PAPER_THICKNESS_M = 0.0004;
  * flaps stay apart without reading as cardboard.
  */
 export const PAPER_LAYER_GAP_M = 0.0008;
+/** Colored border inset along the real perimeter of each side. About 0.8% of a 20 cm sheet. */
+export const PAPER_EDGE_WIDTH_M = 0.0016;
 
 /** Adjustable folded-paper depth. Debug panel writes these live. */
 export const PAPER_DEPTH = {
@@ -42,10 +44,16 @@ export function paperDepthToken(): string {
   ].join('|');
 }
 
+export interface PaperGeometryGroup {
+  start: number;
+  count: number;
+  materialIndex: number;
+}
+
 export interface PaperMeshBuffers {
   positions: Float32Array;
   normals: Float32Array;
-  colors: Float32Array;
+  groups: PaperGeometryGroup[];
   layerLines: Float32Array;
   creaseLines: Float32Array;
   shadowPositions: Float32Array;
@@ -55,10 +63,13 @@ export interface PaperMeshBuffers {
   separationM: number;
 }
 
-const FRONT: Vec3 = [1, 1, 1];
-const BACK: Vec3 = [0.86, 0.83, 0.8];
-const CREASE: Vec3 = [0.72, 0.68, 0.64];
+interface SurfaceBucket {
+  positions: number[];
+  normals: number[];
+}
+
 const SHADOW_LIFT_M = 0.00016;
+const BORDER_LIFT_M = 0.00004;
 /** An edge this close to a higher sheet is treated as covered by it. */
 const COVER_TOLERANCE_M = 0.00015;
 
@@ -86,9 +97,9 @@ interface BuiltFace extends RawFace {
 export function buildPaperMesh(snapshot: MeshSnapshot, shadows = PAPER_DEPTH.shadows): PaperMeshBuffers {
   const thickness = PAPER_DEPTH.thicknessM;
   const separation = Math.max(PAPER_DEPTH.layerSeparationM, thickness + 0.00015);
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const colors: number[] = [];
+  const front = emptyBucket();
+  const back = emptyBucket();
+  const edge = emptyBucket();
   const layerLines: number[] = [];
   const creaseLines: number[] = [];
   const shadowPositions: number[] = [];
@@ -96,24 +107,26 @@ export function buildPaperMesh(snapshot: MeshSnapshot, shadows = PAPER_DEPTH.sha
   const raw = rawFaces(snapshot);
   const stack = stackNormal(raw);
   const faces = raw.map((face) => buildShell(face, stack, thickness, separation));
-  const edgeColor = shadeColor(PAPER_DEPTH.foldEdgeShading);
 
   for (const face of faces) {
-    pushFan(positions, normals, colors, face.front, face.frontDir, FRONT, false);
-    pushFan(positions, normals, colors, face.back, face.frontDir, BACK, true);
-    pushWalls(positions, normals, colors, face, faces, edgeColor);
+    const paperFrontFacesViewer = dot(face.normal, stack) >= 0;
+    pushFan(paperFrontFacesViewer ? front : back, face.front, face.frontDir, false);
+    pushFan(paperFrontFacesViewer ? back : front, face.back, face.frontDir, true);
+    pushWalls(edge, face, faces);
+    pushSurfaceBorders(edge, face, faces, stack, separation, thickness);
     pushLoop(layerLines, face.front);
   }
 
-  pushCreases(positions, normals, colors, creaseLines, faces, stack, separation);
+  pushCreases(edge, creaseLines, faces, stack, separation);
   if (shadows) {
     pushContactShadows(shadowPositions, shadowColors, faces, stack, separation, thickness);
   }
 
+  const packed = packBuckets([front, back, edge]);
   return {
-    positions: new Float32Array(positions),
-    normals: new Float32Array(normals),
-    colors: new Float32Array(colors),
+    positions: packed.positions,
+    normals: packed.normals,
+    groups: packed.groups,
     layerLines: new Float32Array(layerLines),
     creaseLines: new Float32Array(creaseLines),
     shadowPositions: new Float32Array(shadowPositions),
@@ -121,6 +134,34 @@ export function buildPaperMesh(snapshot: MeshSnapshot, shadows = PAPER_DEPTH.sha
     faceCount: faces.length,
     thicknessM: thickness,
     separationM: separation,
+  };
+}
+
+function emptyBucket(): SurfaceBucket {
+  return { positions: [], normals: [] };
+}
+
+function packBuckets(buckets: SurfaceBucket[]): {
+  positions: Float32Array;
+  normals: Float32Array;
+  groups: PaperGeometryGroup[];
+} {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const groups: PaperGeometryGroup[] = [];
+  buckets.forEach((bucket, materialIndex) => {
+    const count = bucket.positions.length / 3;
+    if (count === 0) {
+      return;
+    }
+    groups.push({ start: positions.length / 3, count, materialIndex });
+    positions.push(...bucket.positions);
+    normals.push(...bucket.normals);
+  });
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    groups,
   };
 }
 
@@ -176,15 +217,8 @@ function buildShell(face: RawFace, stack: Vec3, thickness: number, separation: n
   };
 }
 
-function shadeColor(amount: number): Vec3 {
-  const shade = Math.min(Math.max(amount, 0), 1);
-  return [1 - 0.42 * shade, 1 - 0.46 * shade, 1 - 0.5 * shade];
-}
-
 function pushCreases(
-  positions: number[],
-  normals: number[],
-  colors: number[],
+  bucket: SurfaceBucket,
   creaseLines: number[],
   faces: BuiltFace[],
   stack: Vec3,
@@ -213,7 +247,7 @@ function pushCreases(
       continue;
     }
     const bridge = normalize(addVec(faceA.frontDir, faceB.frontDir)) ?? faceA.frontDir;
-    pushQuad(positions, normals, colors, hingeA[0], hingeA[1], hingeB[1], hingeB[0], bridge, CREASE);
+    pushQuad(bucket, hingeA[0], hingeA[1], hingeB[1], hingeB[0], bridge);
   }
 }
 
@@ -539,15 +573,7 @@ function falloff(point: [number, number], a: [number, number], b: [number, numbe
   return Math.min(Math.max(1 - distanceToSegment(point, a, b) / span, 0), 1);
 }
 
-function pushFan(
-  positions: number[],
-  normals: number[],
-  colors: number[],
-  ring: Vec3[],
-  normal: Vec3,
-  color: Vec3,
-  reverse: boolean,
-): void {
+function pushFan(bucket: SurfaceBucket, ring: Vec3[], normal: Vec3, reverse: boolean): void {
   const origin = ring[0];
   if (!origin) {
     return;
@@ -560,14 +586,16 @@ function pushFan(
       continue;
     }
     if (reverse) {
-      pushTri(positions, normals, colors, origin, c, b, wound, color);
+      pushTri(bucket, origin, c, b, wound);
     } else {
-      pushTri(positions, normals, colors, origin, b, c, wound, color);
+      pushTri(bucket, origin, b, c, wound);
     }
   }
 }
 
 function sameSheetEdge(face: BuiltFace, a: number, b: number, faces: BuiltFace[]): boolean {
+  const aPoint = face.base[face.indices.indexOf(a)];
+  const bPoint = face.base[face.indices.indexOf(b)];
   return faces.some((other) => {
     if (other === face || Math.abs(other.layer - face.layer) > 0.05) {
       return false;
@@ -575,11 +603,21 @@ function sameSheetEdge(face: BuiltFace, a: number, b: number, faces: BuiltFace[]
     if (Math.abs(dot(other.frontDir, face.frontDir)) < 0.82) {
       return false;
     }
-    const indices = other.indices;
-    for (let index = 0; index < indices.length; index += 1) {
-      const start = indices[index];
-      const end = indices[(index + 1) % indices.length];
-      if ((start === a && end === b) || (start === b && end === a)) {
+    for (let index = 0; index < other.indices.length; index += 1) {
+      const start = other.indices[index];
+      const end = other.indices[(index + 1) % other.indices.length];
+      const sharesIndex = (start === a && end === b) || (start === b && end === a);
+      if (sharesIndex) {
+        return true;
+      }
+      const startPoint = other.base[index];
+      const endPoint = other.base[(index + 1) % other.base.length];
+      if (!aPoint || !bPoint || !startPoint || !endPoint) {
+        continue;
+      }
+      const forward = distance(startPoint, aPoint) < 0.00025 && distance(endPoint, bPoint) < 0.00025;
+      const reverse = distance(startPoint, bPoint) < 0.00025 && distance(endPoint, aPoint) < 0.00025;
+      if (forward || reverse) {
         return true;
       }
     }
@@ -587,13 +625,68 @@ function sameSheetEdge(face: BuiltFace, a: number, b: number, faces: BuiltFace[]
   });
 }
 
-function pushWalls(
-  positions: number[],
-  normals: number[],
-  colors: number[],
+function pushSurfaceBorders(
+  bucket: SurfaceBucket,
   face: BuiltFace,
   faces: BuiltFace[],
-  color: Vec3,
+  stack: Vec3,
+  separation: number,
+  thickness: number,
+): void {
+  const covers = coveringFaces(faces, face, stack, separation, thickness);
+  for (let index = 0; index < face.base.length; index += 1) {
+    const next = (index + 1) % face.base.length;
+    const indexA = face.indices[index];
+    const indexB = face.indices[next];
+    const a = face.base[index];
+    const b = face.base[next];
+    if (!a || !b || indexA === undefined || indexB === undefined || sameSheetEdge(face, indexA, indexB, faces)) {
+      continue;
+    }
+    if (distance(a, b) < 0.002) {
+      continue;
+    }
+    const outward = edgeOutward(a, b, face.centroid, face.frontDir);
+    if (!outward) {
+      continue;
+    }
+    const inset = Math.min(PAPER_EDGE_WIDTH_M, distance(average([a, b]), face.centroid) * 0.42);
+    if (inset < 0.0003) {
+      continue;
+    }
+    for (const [start, end] of exposedSegments(a, b, covers, stack)) {
+      pushBorder(bucket, start, end, outward, face.frontDir, inset, thickness + BORDER_LIFT_M);
+      pushBorder(bucket, start, end, outward, face.frontDir, inset, -BORDER_LIFT_M);
+    }
+  }
+}
+
+function pushBorder(
+  bucket: SurfaceBucket,
+  a: Vec3,
+  b: Vec3,
+  outward: Vec3,
+  normal: Vec3,
+  width: number,
+  lift: number,
+): void {
+  const onFront = lift > 0;
+  const a0 = offset(a, normal, lift);
+  const b0 = offset(b, normal, lift);
+  const inward = scaleVec(outward, -width);
+  const a1 = addVec(a0, inward);
+  const b1 = addVec(b0, inward);
+  if (onFront) {
+    pushQuad(bucket, a0, a1, b1, b0, normal);
+  } else {
+    pushQuad(bucket, a0, b0, b1, a1, scaleVec(normal, -1));
+  }
+}
+
+function pushWalls(
+  bucket: SurfaceBucket,
+  face: BuiltFace,
+  faces: BuiltFace[],
 ): void {
   for (let i = 0; i < face.front.length; i += 1) {
     const next = (i + 1) % face.front.length;
@@ -614,41 +707,21 @@ function pushWalls(
     const outward = normalize(cross(sub(frontB, frontA), sub(backA, frontA))) ?? face.frontDir;
     const towardCenter = dot(outward, sub(face.centroid, frontA));
     if (towardCenter > 0) {
-      pushQuad(positions, normals, colors, frontA, backA, backB, frontB, scaleVec(outward, -1), color);
+      pushQuad(bucket, frontA, backA, backB, frontB, scaleVec(outward, -1));
     } else {
-      pushQuad(positions, normals, colors, frontA, frontB, backB, backA, outward, color);
+      pushQuad(bucket, frontA, frontB, backB, backA, outward);
     }
   }
 }
 
-function pushQuad(
-  positions: number[],
-  normals: number[],
-  colors: number[],
-  a: Vec3,
-  b: Vec3,
-  c: Vec3,
-  d: Vec3,
-  normal: Vec3,
-  color: Vec3,
-): void {
-  pushTri(positions, normals, colors, a, b, c, normal, color);
-  pushTri(positions, normals, colors, a, c, d, normal, color);
+function pushQuad(bucket: SurfaceBucket, a: Vec3, b: Vec3, c: Vec3, d: Vec3, normal: Vec3): void {
+  pushTri(bucket, a, b, c, normal);
+  pushTri(bucket, a, c, d, normal);
 }
 
-function pushTri(
-  positions: number[],
-  normals: number[],
-  colors: number[],
-  a: Vec3,
-  b: Vec3,
-  c: Vec3,
-  normal: Vec3,
-  color: Vec3,
-): void {
-  positions.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-  normals.push(normal[0], normal[1], normal[2], normal[0], normal[1], normal[2], normal[0], normal[1], normal[2]);
-  colors.push(color[0], color[1], color[2], color[0], color[1], color[2], color[0], color[1], color[2]);
+function pushTri(bucket: SurfaceBucket, a: Vec3, b: Vec3, c: Vec3, normal: Vec3): void {
+  bucket.positions.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  bucket.normals.push(normal[0], normal[1], normal[2], normal[0], normal[1], normal[2], normal[0], normal[1], normal[2]);
 }
 
 function pushAlphaTri(
