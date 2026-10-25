@@ -28,6 +28,7 @@ function installCanvasStub(): void {
 
 installCanvasStub();
 import { Group, Vector3 } from 'three';
+import type { FaceDefinition, MeshSnapshot, Vec3 } from '../../src/origami/types.ts';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
 import { origamiPaperMaterial } from '../../src/origami/OrigamiPaperMaterial.ts';
 import { CREASE_ALIGN_TOL_M, creaseAlignmentErrorM } from '../../src/origami/creaseMath.ts';
@@ -81,6 +82,44 @@ function commitCurrent(engine: OrigamiEngine): void {
 function maxLayer(id: string): number {
   const snap = LADYBUG_RECIPE.snapshots[id];
   return snap?.faces.reduce((max, face) => Math.max(max, face.layer), 0) ?? -1;
+}
+
+function faceWindZ(vertices: Vec3[], face: FaceDefinition): number {
+  let z = 0;
+  for (let i = 0; i < face.vertices.length; i += 1) {
+    const current = vertices[face.vertices[i] ?? -1];
+    const next = vertices[face.vertices[(i + 1) % face.vertices.length] ?? -1];
+    if (!current || !next) {
+      continue;
+    }
+    z += (current[0] - next[0]) * (current[1] + next[1]);
+  }
+  return z;
+}
+
+function faceContains(vertices: Vec3[], face: FaceDefinition, x: number, y: number): boolean {
+  const points = face.vertices.map((index) => vertices[index]).filter((point): point is Vec3 => !!point);
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const a = points[i];
+    const b = points[j];
+    if (!a || !b) {
+      continue;
+    }
+    const crosses = a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1] + 1e-12) + a[0];
+    if (crosses) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Highest layer first. Negative wind is the red front; positive wind is the ivory back. */
+function coversAt(snapshot: MeshSnapshot, x: number, y: number): Array<{ layer: number; wind: number }> {
+  return snapshot.faces
+    .filter((face) => faceContains(snapshot.vertices, face, x, y))
+    .map((face) => ({ layer: face.layer, wind: faceWindZ(snapshot.vertices, face) }))
+    .sort((a, b) => b.layer - a.layer);
 }
 
 describe('origami ladybug recipe', () => {
@@ -217,8 +256,9 @@ describe('origami ladybug recipe', () => {
     const tipTravel = Math.abs(headTip - tipY);
     expect(LADYBUG_TIP_CREASE_FRAC).toBeLessThan(0);
     expect(LADYBUG_TIP_CREASE_FRAC).toBeGreaterThan(tipY / R);
-    expect(tipTravel).toBeLessThan(flapHeight * 0.7);
-    expect(tipTravel).toBeGreaterThan(flapHeight * 0.2);
+    expect(tipTravel).toBeLessThan(flapHeight * 0.2);
+    expect(tipTravel).toBeGreaterThan(0);
+    expect(headTip).toBeLessThan(LADYBUG_HEAD_CREASE_FRAC * R);
     expect(tipped?.named?.B?.[1]).toBeCloseTo(-R, 4);
     expect(tipped?.named?.L?.[0]).toBeCloseTo(-R, 4);
     const tipHinge = LADYBUG_RECIPE.steps.find((step) => step.id === 'ladybug-tip')?.hinge;
@@ -265,6 +305,40 @@ describe('origami ladybug recipe', () => {
     expect(error).toBeLessThanOrEqual(LADYBUG_RECIPE.silhouetteToleranceM ?? 0.045);
     const bottom = LADYBUG_RECIPE.steps.find((step) => step.id === 'ladybug-bottom')?.hinge;
     expect(bottom?.p0[1]).toBeCloseTo(LADYBUG_BOTTOM_CREASE_FRAC * R, 4);
+  });
+
+  it('tucks step 4 behind the upper band and keeps that red triangle through step 5', () => {
+    const headed = LADYBUG_RECIPE.snapshots.headed;
+    const cornered = LADYBUG_RECIPE.snapshots.cornered;
+    expect(headed).toBeTruthy();
+    expect(cornered).toBeTruthy();
+    const band = coversAt(headed!, 0, 0.24 * R);
+    const bandSide = coversAt(headed!, 0.2 * R, 0.24 * R);
+    expect(band[0]?.wind ?? 0).toBeGreaterThan(0);
+    expect(bandSide[0]?.wind ?? 0).toBeGreaterThan(0);
+    expect(band[0]?.layer).toBe(bandSide[0]?.layer);
+
+    const detail = coversAt(headed!, 0, 0.05 * R);
+    const ivoryUnderDetail = detail.find((face) => face.wind > 0);
+    expect(detail[0]?.wind ?? 0).toBeLessThan(0);
+    expect(ivoryUnderDetail).toBeTruthy();
+    expect(detail[0]!.layer).toBeGreaterThan(ivoryUnderDetail!.layer);
+    expect(headed?.named?.T?.[1] ?? 0).toBeGreaterThan(0.12 * R);
+    expect(headed?.named?.T?.[1] ?? 0).toBeLessThan(LADYBUG_TOP_CREASE_FRAC * R);
+
+    const afterCorners = coversAt(cornered!, 0, 0.05 * R);
+    expect(afterCorners[0]?.wind ?? 0).toBeLessThan(0);
+    expect(afterCorners[0]!.layer).toBeGreaterThan(afterCorners.find((face) => face.wind > 0)?.layer ?? 99);
+    const left = coversAt(cornered!, -0.06 * R, 0.02 * R);
+    const right = coversAt(cornered!, 0.06 * R, 0.02 * R);
+    expect(left[0]?.wind ?? 0).toBeLessThan(0);
+    expect(right[0]?.wind ?? 1).toBeLessThan(0);
+    expect(left[0]?.layer).toBe(right[0]?.layer);
+
+    const finished = coversAt(LADYBUG_RECIPE.snapshots.ladybug!, 0, 0.05 * R);
+    expect(finished[0]?.wind ?? 0).toBeLessThan(0);
+    const finishedBand = coversAt(LADYBUG_RECIPE.snapshots.ladybug!, 0, 0.24 * R);
+    expect(finishedBand[0]?.wind ?? 0).toBeGreaterThan(0);
   });
 
   it('reveals two eyes and five spots only when the ladybug comes to life', () => {
