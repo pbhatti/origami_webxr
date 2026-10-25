@@ -38,9 +38,11 @@ export const GALLERY_OFFSET_LOCAL: Vec3 = [0, -0.06, -1.15];
 
 const COL_GAP = 0.016;
 const ROW_GAP = 0.016;
+const ROW_STRIDE = CARD_HEIGHT + ROW_GAP;
 const HEADER = 0.142;
 const FOOTER = 0.11;
-const PAGE_ROWS = GALLERY_VISIBLE_ROWS;
+const VIEW_ROWS = GALLERY_VISIBLE_ROWS;
+const SCROLL_DRAG_M = 0.02;
 const TITLE_FONT = FONT_SANS;
 
 const _position = new Vector3();
@@ -61,8 +63,7 @@ const HANDLE_HIT_HEIGHT = 0.046;
 const DEPTH_HIT_M = 0.07;
 
 export type GalleryControl =
-  | 'page-next'
-  | 'page-prev'
+  | 'back'
   | 'continue'
   | 'restart'
   | 'confirm-restart'
@@ -81,8 +82,6 @@ export interface GalleryDebug {
   selectedCard: string | null;
   modelsLoaded: number;
   floatsActive: number;
-  page: number;
-  pageCount: number;
   open: boolean;
   dragEnabled: boolean;
   dragState: string;
@@ -134,12 +133,16 @@ export class OrigamiGallery {
   private readonly bounds: BoxHelper;
   private readonly promptButtons: Mesh[] = [];
   private readonly confirmButtons: Mesh[] = [];
-  private readonly prevPage: Mesh;
-  private readonly nextPage: Mesh;
+  private readonly backButton: Mesh;
   private readonly panelWidth: number;
   private readonly panelHeight: number;
   private readonly handleY: number;
-  private page = 0;
+  private scrollRows = 0;
+  private scrollAnchorY: number | null = null;
+  private scrollAnchorRows = 0;
+  private scrollDrag = false;
+  private scrollGesture: 'idle' | 'drag' | 'release' = 'idle';
+  private wheelAccum = 0;
   private hovered: AnimalId | null = null;
   private selected: AnimalId | null = null;
   private mode: GalleryDebug['state'] = 'hidden';
@@ -155,7 +158,7 @@ export class OrigamiGallery {
     this.group.visible = false;
 
     const panelWidth = GALLERY_COLUMNS * CARD_WIDTH + (GALLERY_COLUMNS - 1) * COL_GAP + 0.1;
-    const panelHeight = HEADER + PAGE_ROWS * CARD_HEIGHT + (PAGE_ROWS - 1) * ROW_GAP + FOOTER;
+    const panelHeight = HEADER + VIEW_ROWS * CARD_HEIGHT + (VIEW_ROWS - 1) * ROW_GAP + FOOTER;
     this.panelWidth = panelWidth;
     this.panelHeight = panelHeight;
     this.handleY = panelHeight / 2 + 0.026;
@@ -203,17 +206,13 @@ export class OrigamiGallery {
     ANIMALS.forEach((animal) => {
       const model = origamiModels.create(animal.id, animal.paperColor);
       const card = new OrigamiCard(animal, model);
-      card.group.position.copy(this.cardPosition(animal.row, animal.column, panelHeight));
-      card.group.position.z = 0.01;
       card.group.userData.foldFlyGalleryId = animal.id;
       this.floats.add(card.modelRoot, animal.id, card.modelRoot.position.y);
       this.cards.set(animal.id, card);
     });
 
-    this.prevPage = controlMesh(COPY.gallery.back, 0.12, 'page-prev', 'quiet');
-    this.nextPage = controlMesh(COPY.gallery.more, 0.2, 'page-next');
-    this.prevPage.position.set(-0.16, -panelHeight / 2 + 0.042, 0.02);
-    this.nextPage.position.set(0.16, -panelHeight / 2 + 0.042, 0.02);
+    this.backButton = controlMesh(COPY.gallery.back, 0.12, 'back', 'quiet');
+    this.backButton.position.set(0, -panelHeight / 2 + 0.042, 0.02);
 
     this.toast = new Mesh(new PlaneGeometry(0.46, 0.038), glassMaterial(pillTexture(COMING_SOON_MESSAGE, 'ink')));
     this.toast.position.set(0, -panelHeight / 2 + 0.078, 0.03);
@@ -261,8 +260,8 @@ export class OrigamiGallery {
       ...this.rayDots,
     );
     this.cards.forEach((card) => this.group.add(card.group));
-    this.group.add(this.prevPage, this.nextPage, ...this.promptButtons, ...this.confirmButtons);
-    this.applyPage();
+    this.group.add(this.backButton, ...this.promptButtons, ...this.confirmButtons);
+    this.applyScroll();
     void document.fonts?.ready.then(() => this.refreshText());
   }
 
@@ -273,8 +272,7 @@ export class OrigamiGallery {
     this.replaceMap(this.subtitle, this.subtitleMaterial());
     this.replaceMap(this.gestureHint, this.hintMaterial());
     this.replaceMap(this.toast, glassMaterial(pillTexture(COMING_SOON_MESSAGE, 'ink')));
-    this.replaceMap(this.prevPage, glassMaterial(pillTexture(COPY.gallery.back, 'quiet')));
-    this.replaceMap(this.nextPage, glassMaterial(pillTexture(COPY.gallery.more, 'ink')));
+    this.replaceMap(this.backButton, glassMaterial(pillTexture(COPY.gallery.back, 'quiet')));
     this.replaceMap(this.recenterBtn, glassMaterial(pillTexture(COPY.session.recenter, 'quiet')));
     this.replaceMap(this.handle, glassMaterial(dragHandleTexture(this.handleHover)));
     for (const button of this.promptButtons) {
@@ -296,8 +294,7 @@ export class OrigamiGallery {
     const root = world.createTransformEntity(this.group, { persistent: true });
     const objects: Array<Mesh | Group> = [
       ...[...this.cards.values()].map((card) => card.group),
-      this.prevPage,
-      this.nextPage,
+      this.backButton,
       this.recenterBtn,
       this.handle,
       this.panel,
@@ -349,7 +346,7 @@ export class OrigamiGallery {
     this.group.visible = true;
     this.group.scale.setScalar(1);
     this.floats.resume();
-    this.applyPage();
+    this.applyScroll();
     debugEvents.emit('galleryOpened', { kind });
   }
 
@@ -462,18 +459,64 @@ export class OrigamiGallery {
     this.syncGestureHint();
   }
 
-  setPage(page: number): void {
-    const max = this.pageCount - 1;
-    this.page = Math.max(0, Math.min(max, page));
-    this.applyPage();
+  /** Move the card grid by whole or fractional rows. Lower rows sit below the fold. */
+  scrollBy(deltaRows: number): void {
+    this.setScroll(this.scrollRows + deltaRows);
   }
 
-  get pageIndex(): number {
-    return this.page;
+  scrollBack(): void {
+    this.setScroll(Math.round(this.scrollRows) - VIEW_ROWS);
   }
 
-  get pageCount(): number {
-    return Math.ceil(galleryRowCount() / PAGE_ROWS);
+  get canScrollBack(): boolean {
+    return this.scrollRows > 0.05;
+  }
+
+  scrollByWheel(deltaY: number, deltaMode: number): void {
+    if (!this.group.visible || this.scrollDrag) {
+      return;
+    }
+    const pixels = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 800 : deltaY;
+    this.wheelAccum += pixels;
+    const step = 48;
+    while (this.wheelAccum >= step) {
+      this.setScroll(Math.round(this.scrollRows) + 1);
+      this.wheelAccum -= step;
+    }
+    while (this.wheelAccum <= -step) {
+      this.setScroll(Math.round(this.scrollRows) - 1);
+      this.wheelAccum += step;
+    }
+  }
+
+  /**
+   * Vertical pinch on the card grid scrolls every creation into the same window.
+   * A short pinch still selects a card; the selection lock stays up through release.
+   */
+  noteScrollPointer(worldPoint: Vector3 | null, pinching: boolean): void {
+    if (this.scrollGesture === 'release') {
+      this.scrollGesture = 'idle';
+    }
+    if (!this.group.visible || !pinching || !worldPoint || this.mover.active) {
+      this.finishScrollGesture();
+      return;
+    }
+    const local = this.toLocal(worldPoint);
+    if (this.scrollAnchorY == null) {
+      if (!this.inCardViewport(local)) {
+        return;
+      }
+      this.scrollAnchorY = local.y;
+      this.scrollAnchorRows = this.scrollRows;
+      return;
+    }
+    const dy = local.y - this.scrollAnchorY;
+    if (!this.scrollDrag && Math.abs(dy) < SCROLL_DRAG_M) {
+      return;
+    }
+    this.scrollDrag = true;
+    this.scrollGesture = 'drag';
+    this.setScroll(this.scrollAnchorRows + dy / ROW_STRIDE);
   }
 
   setCollidersVisible(visible: boolean): void {
@@ -492,8 +535,6 @@ export class OrigamiGallery {
       selectedCard: this.selected,
       modelsLoaded: origamiModels.loadedCount,
       floatsActive: this.floats.activeCount,
-      page: this.page + 1,
-      pageCount: this.pageCount,
       open: this.group.visible,
       dragEnabled: MENU_DRAG_CONFIG.enabled,
       dragState: this.mover.dragState,
@@ -507,7 +548,7 @@ export class OrigamiGallery {
   }
 
   get blocksCardSelection(): boolean {
-    return this.mover.blocksSelection;
+    return this.mover.blocksSelection || this.scrollGesture !== 'idle';
   }
 
   get isDragging(): boolean {
@@ -636,7 +677,7 @@ export class OrigamiGallery {
   }
 
   private inInteractive(local: Vector3): boolean {
-    if (this.hitsMesh(local, this.recenterBtn) || this.hitsMesh(local, this.prevPage) || this.hitsMesh(local, this.nextPage)) {
+    if (this.hitsMesh(local, this.recenterBtn) || this.hitsMesh(local, this.backButton)) {
       return true;
     }
     for (const button of [...this.promptButtons, ...this.confirmButtons]) {
@@ -752,25 +793,68 @@ export class OrigamiGallery {
     next.dispose();
   }
 
-  private cardPosition(row: number, column: number, panelHeight: number): Vector3 {
+  private cardX(column: number): number {
     const gridWidth = GALLERY_COLUMNS * CARD_WIDTH + (GALLERY_COLUMNS - 1) * COL_GAP;
-    const x = -gridWidth / 2 + CARD_WIDTH / 2 + column * (CARD_WIDTH + COL_GAP);
-    const localRow = row % PAGE_ROWS;
-    const top = panelHeight / 2 - HEADER - CARD_HEIGHT / 2;
-    const y = top - localRow * (CARD_HEIGHT + ROW_GAP);
-    return new Vector3(x, y, 0);
+    return -gridWidth / 2 + CARD_WIDTH / 2 + column * (CARD_WIDTH + COL_GAP);
   }
 
-  private applyPage(): void {
-    const start = this.page * PAGE_ROWS;
-    const end = start + PAGE_ROWS;
+  private cardViewport(): { top: number; bottom: number } {
+    const top = this.panelHeight / 2 - HEADER;
+    const bottom = top - VIEW_ROWS * CARD_HEIGHT - (VIEW_ROWS - 1) * ROW_GAP;
+    return { top, bottom };
+  }
+
+  private inCardViewport(local: Vector3): boolean {
+    if (this.hitsMesh(local, this.backButton) || this.hitsMesh(local, this.recenterBtn)) {
+      return false;
+    }
+    for (const button of [...this.promptButtons, ...this.confirmButtons]) {
+      if (this.hitsMesh(local, button)) {
+        return false;
+      }
+    }
+    const { top, bottom } = this.cardViewport();
+    return Math.abs(local.x) <= this.panelWidth / 2 - 0.02 && local.y <= top && local.y >= bottom;
+  }
+
+  private maxScroll(): number {
+    return Math.max(0, galleryRowCount() - VIEW_ROWS);
+  }
+
+  private setScroll(rows: number): void {
+    this.scrollRows = Math.min(this.maxScroll(), Math.max(0, rows));
+    this.applyScroll();
+  }
+
+  private finishScrollGesture(): void {
+    if (!this.scrollDrag && this.scrollAnchorY == null) {
+      return;
+    }
+    if (this.scrollDrag) {
+      this.setScroll(Math.round(this.scrollRows));
+      this.scrollGesture = 'release';
+    }
+    this.scrollDrag = false;
+    this.scrollAnchorY = null;
+  }
+
+  private applyScroll(): void {
+    const { top, bottom } = this.cardViewport();
+    const topCenter = top - CARD_HEIGHT / 2;
     this.cards.forEach((card) => {
-      const visible = card.animal.row >= start && card.animal.row < end;
+      const y = topCenter - (card.animal.row - this.scrollRows) * ROW_STRIDE;
+      card.group.position.set(this.cardX(card.animal.column), y, 0.01);
+      const cardTop = y + CARD_HEIGHT / 2;
+      const cardBottom = y - CARD_HEIGHT / 2;
+      const visible = cardBottom >= bottom - 0.001 && cardTop <= top + 0.001;
       card.group.visible = visible;
       card.hit.visible = visible;
+      if (!visible && this.hovered === card.animal.id) {
+        this.hovered = null;
+        card.setHover(false);
+      }
     });
-    this.prevPage.visible = this.page > 0;
-    this.nextPage.visible = this.page < this.pageCount - 1;
+    this.backButton.visible = true;
   }
 
   private setVisibleAll(meshes: Mesh[], visible: boolean): void {

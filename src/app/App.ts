@@ -116,6 +116,7 @@ export class App {
   private returnedFromImmersive = false;
   private launcherFallback = false;
   private launcherRestored = false;
+  private unbindGalleryWheel: (() => void) | null = null;
 
   constructor(private readonly roots: { overlay: HTMLElement; scene: HTMLElement }) {
     this.panel = new WelcomePanel(roots.overlay, {
@@ -182,6 +183,15 @@ export class App {
       world.scene.add(fill);
 
       world.renderer.domElement.setAttribute('aria-label', 'Fold & Play paper studio');
+      const onGalleryWheel = (event: WheelEvent): void => {
+        if (!this.gallery.group.visible || event.ctrlKey || event.metaKey) {
+          return;
+        }
+        event.preventDefault();
+        this.gallery.scrollByWheel(event.deltaY, event.deltaMode);
+      };
+      world.renderer.domElement.addEventListener('wheel', onGalleryWheel, { passive: false });
+      this.unbindGalleryWheel = () => world.renderer.domElement.removeEventListener('wheel', onGalleryWheel);
       this.stage.mount(world);
       this.gallery.mount(world);
       this.stage.setDebugVisible(this.debug);
@@ -350,6 +360,8 @@ export class App {
   }
 
   dispose(): void {
+    this.unbindGalleryWheel?.();
+    this.unbindGalleryWheel = null;
     this.stage.dispose();
     this.session.dispose();
   }
@@ -631,10 +643,12 @@ export class App {
     if (event.type !== 'control') {
       return;
     }
-    if (event.control === 'page-next') {
-      this.gallery.setPage(this.gallery.pageIndex + 1);
-    } else if (event.control === 'page-prev') {
-      this.gallery.setPage(this.gallery.pageIndex - 1);
+    if (event.control === 'back') {
+      if (this.gallery.canScrollBack) {
+        this.gallery.scrollBack();
+      } else {
+        this.retreatGallery();
+      }
     } else if (event.control === 'recenter-menu') {
       const world = this.session.getWorld();
       if (world) {
@@ -649,6 +663,20 @@ export class App {
     } else {
       this.gallery.hidePrompts();
     }
+  }
+
+  /** Back leaves the gallery once the card grid is already at the first row. */
+  private retreatGallery(): void {
+    if (this.activeAnimalId || this.machine.state === 'GALLERY_OVERLAY') {
+      this.resumeFold();
+      return;
+    }
+    this.gallery.hide();
+    this.stage.hidePaperRoot();
+    if (this.machine.state === 'GALLERY_OPEN' && this.machine.canTransition('WELCOME')) {
+      this.machine.transition('WELCOME');
+    }
+    this.renderPanel();
   }
 
   private launchAnimal(id: PlayableAnimalId): void {

@@ -45,6 +45,7 @@ export function createSpatialButtonSystem(handlers: SpatialButtonSystemHandlers)
       this.queries.buttons.entities.forEach((entity) => {
         const object = entity.object3D as Object3D | undefined;
         if (!object || !object.visible) {
+          pressedLastFrame.delete(entity);
           return;
         }
         const action = object.userData.foldFlyAction as ToolbarAction | undefined;
@@ -73,9 +74,10 @@ export function createSpatialButtonSystem(handlers: SpatialButtonSystemHandlers)
           handlers.onGalleryEvent?.({ type: 'drag-hover', hovered });
         }
 
-        if (!locked && !galleryLocked && !playLocked && !handleHot && galleryId) {
+        const gallerySelectable = !locked && !galleryLocked && !playLocked && !handleHot && Boolean(galleryId);
+        if (gallerySelectable && galleryId) {
           handlers.onGalleryEvent?.({ type: 'hover', id: galleryId, hovered });
-          if (pressed && !wasPressed) {
+          if (!pressed && wasPressed) {
             handlers.onGalleryEvent?.({ type: 'press', id: galleryId });
           }
         }

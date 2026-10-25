@@ -12,7 +12,6 @@ export const COPY = {
     foldNow: 'Fold Now',
     comingSoon: 'Coming Soon',
     comingSoonToast: 'Folding experience coming soon',
-    more: 'More creations',
     back: 'Back',
     continue: 'Continue',
     gestureHint: 'Use your hands to pinch, fold & play.',

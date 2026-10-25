@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ANIMALS, GALLERY_COLUMNS, playableAnimals } from '../../src/gallery/animals.ts';
+import { ANIMALS, GALLERY_COLUMNS, GALLERY_ROWS, GALLERY_VISIBLE_ROWS, galleryRowCount, playableAnimals } from '../../src/gallery/animals.ts';
 import { COMING_SOON_MESSAGE, routeAnimal } from '../../src/gallery/ExperienceRouter.ts';
 import { COPY } from '../../src/ui/welcomeCopy.ts';
 import { createFloatAnimation } from '../../src/gallery/FloatingAnimationController.ts';
@@ -114,6 +114,23 @@ describe('origami animals gallery', () => {
     expect(COPY.gallery.foldNow).toBe('Fold Now');
     expect(COPY.gallery.comingSoon).toBe('Coming Soon');
     expect(COPY.gallery.heading).toBe('Explore Creations');
+    expect(COPY.gallery.back).toBe('Back');
+  });
+
+  it('keeps every creation reachable in one scrolling grid', () => {
+    expect(GALLERY_VISIBLE_ROWS).toBe(2);
+    expect(galleryRowCount()).toBe(GALLERY_ROWS);
+    const maxScroll = Math.max(0, galleryRowCount() - GALLERY_VISIBLE_ROWS);
+    const reachable = new Set<string>();
+    for (let scroll = 0; scroll <= maxScroll; scroll += 1) {
+      for (const animal of ANIMALS) {
+        if (animal.row >= scroll && animal.row < scroll + GALLERY_VISIBLE_ROWS) {
+          reachable.add(animal.id);
+        }
+      }
+    }
+    expect(reachable.size).toBe(ANIMALS.length);
+    expect(Object.hasOwn(COPY.gallery, 'more')).toBe(false);
   });
 
   it('builds a folded-paper bat preview with fluttering wings', () => {

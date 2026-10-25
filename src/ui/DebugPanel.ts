@@ -117,8 +117,6 @@ export interface DebugPanelView {
       selectedCard: string | null;
       modelsLoaded: number;
       floatsActive: number;
-      page: number;
-      pageCount: number;
       open: boolean;
       whalePreserved?: boolean;
       activeAnimal?: string | null;
@@ -364,7 +362,6 @@ function draw(view: DebugPanelView): HTMLCanvasElement {
     line('g select', view.fold?.gallery?.selectedCard ?? '—'),
     line('g models', view.fold?.gallery?.modelsLoaded != null ? String(view.fold.gallery.modelsLoaded) : '—'),
     line('g floats', view.fold?.gallery?.floatsActive != null ? String(view.fold.gallery.floatsActive) : '—'),
-    line('g page', view.fold?.gallery ? `${view.fold.gallery.page}/${view.fold.gallery.pageCount}` : '—'),
     line('g keep', view.fold?.gallery?.activeAnimal ?? (view.fold?.gallery?.whalePreserved ? 'session' : 'none')),
     line('draws', view.fold?.gallery?.drawCalls != null ? String(view.fold.gallery.drawCalls) : '—'),
     line('tris', view.fold?.gallery?.triangles != null ? String(view.fold.gallery.triangles) : '—'),

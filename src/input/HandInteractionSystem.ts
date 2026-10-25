@@ -173,8 +173,6 @@ export interface HandInteractionHandlers {
       selectedCard: string | null;
       modelsLoaded: number;
       floatsActive: number;
-      page: number;
-      pageCount: number;
       open: boolean;
       whalePreserved?: boolean;
       activeAnimal?: string | null;
@@ -469,6 +467,11 @@ export function createHandInteractionSystem(handlers: HandInteractionHandlers) {
         this.applyPaperMove(paperRoot, snapshot, left, right, leftWorld, rightWorld);
       }
       this.applyMenuMove(snapshot, leftWorld, rightWorld, leftAim, rightAim, delta);
+      const pinchRight = snapshot.right.pinch === 'closed';
+      const pinchLeft = snapshot.left.pinch === 'closed';
+      const galleryPinch = handlers.gallery.group.visible && (pinchRight || pinchLeft);
+      const galleryPoint = pinchRight ? rightWorld : pinchLeft ? leftWorld : null;
+      handlers.gallery.noteScrollPointer(galleryPinch ? galleryPoint : null, galleryPinch);
 
       if (snapshot.panelDragging) {
         const ownerWorld =
