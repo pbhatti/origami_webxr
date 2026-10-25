@@ -525,21 +525,6 @@ const BUILDERS: Record<AnimalId, (color: string) => Group> = {
   dinosaur: () => dinosaurModel(),
   ladybug: () => ladybugModel(),
   penguin: () => penguinModel(),
-  rabbit: (color) =>
-    poly(color, [
-      triangle(-0.03, -0.02, 0.03, -0.02, 0, 0.03),
-      triangle(-0.018, 0.02, -0.008, 0.02, -0.02, 0.07),
-      triangle(0.008, 0.02, 0.018, 0.02, 0.016, 0.068),
-      triangle(-0.01, -0.02, 0.01, -0.02, 0, -0.04),
-    ]),
-  elephant: (color) =>
-    poly(color, [
-      quad(-0.03, -0.01, 0.03, 0.03),
-      triangle(-0.05, 0.01, -0.03, 0.03, -0.028, -0.01),
-      triangle(0.03, 0.01, 0.055, 0.0, 0.03, -0.015),
-      triangle(0.048, 0.0, 0.07, -0.03, 0.042, -0.012),
-      triangle(-0.02, -0.01, -0.01, -0.01, -0.018, -0.035),
-    ]),
   swan: (color) =>
     poly(color, [
       triangle(-0.04, -0.02, 0.04, -0.015, 0.01, 0.02),

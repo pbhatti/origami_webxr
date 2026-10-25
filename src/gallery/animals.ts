@@ -9,8 +9,6 @@ import { PENGUIN_PAPER_COLOR } from '../origami/recipes/penguin.recipe.ts';
 import { TURTLE_PAPER_COLOR } from '../origami/recipes/turtle.recipe.ts';
 
 export type AnimalId =
-  | 'rabbit'
-  | 'elephant'
   | 'whale'
   | 'swan'
   | 'crane'
@@ -45,14 +43,14 @@ export interface AnimalDefinition {
 }
 
 export const ANIMALS: AnimalDefinition[] = [
-  { id: 'rabbit', name: 'Rabbit', row: 0, column: 0, playable: false, paperColor: '#f4ead6', approximation: true },
-  { id: 'elephant', name: 'Elephant', row: 0, column: 1, playable: false, paperColor: '#c5c0b5', approximation: true },
-  { id: 'whale', name: 'Whale', row: 0, column: 2, playable: true, paperColor: FOLD_PAPER_COLOR, approximation: false },
-  { id: 'fox', name: 'Fox', row: 0, column: 3, playable: true, paperColor: FOX_PAPER_COLOR, approximation: false },
-  { id: 'bat', name: 'Bat', row: 1, column: 0, playable: true, paperColor: BAT_PAPER_COLOR, approximation: false },
-  { id: 'owl', name: 'Owl', row: 1, column: 1, playable: true, paperColor: OWL_PAPER_COLOR, approximation: false },
-  { id: 'turtle', name: 'Turtle', row: 1, column: 2, playable: true, paperColor: TURTLE_PAPER_COLOR, approximation: false },
-  { id: 'dinosaur', name: 'Dinosaur', row: 1, column: 3, playable: true, paperColor: DINOSAUR_PAPER_COLOR, approximation: false },
+  { id: 'whale', name: 'Whale', row: 0, column: 0, playable: true, paperColor: FOLD_PAPER_COLOR, approximation: false },
+  { id: 'fox', name: 'Fox', row: 0, column: 1, playable: true, paperColor: FOX_PAPER_COLOR, approximation: false },
+  { id: 'bat', name: 'Bat', row: 0, column: 2, playable: true, paperColor: BAT_PAPER_COLOR, approximation: false },
+  { id: 'owl', name: 'Owl', row: 0, column: 3, playable: true, paperColor: OWL_PAPER_COLOR, approximation: false },
+  { id: 'turtle', name: 'Turtle', row: 1, column: 0, playable: true, paperColor: TURTLE_PAPER_COLOR, approximation: false },
+  { id: 'dinosaur', name: 'Dinosaur', row: 1, column: 1, playable: true, paperColor: DINOSAUR_PAPER_COLOR, approximation: false },
+  { id: 'ladybug', name: 'Ladybug', row: 1, column: 2, playable: true, paperColor: LADYBUG_PAPER_COLOR, approximation: false },
+  { id: 'penguin', name: 'Penguin', row: 1, column: 3, playable: true, paperColor: PENGUIN_PAPER_COLOR, approximation: false },
   { id: 'crane', name: 'Crane', row: 4, column: 3, playable: false, paperColor: '#c44536', approximation: true },
   { id: 'boat', name: 'Boat', row: 2, column: 0, playable: false, paperColor: '#7d93a8', approximation: true },
   { id: 'bird', name: 'Bird', row: 2, column: 1, playable: false, paperColor: '#e8c547', approximation: true },
@@ -65,12 +63,10 @@ export const ANIMALS: AnimalDefinition[] = [
   { id: 'swan', name: 'Swan', row: 4, column: 0, playable: false, paperColor: '#f7f1e6', approximation: true },
   { id: 'cat-sitting', name: 'Cat (Sitting)', row: 4, column: 1, playable: false, paperColor: '#d9cbb8', approximation: true },
   { id: 'dog-standing', name: 'Dog (Standing)', row: 4, column: 2, playable: false, paperColor: '#c4a574', approximation: true },
-  { id: 'ladybug', name: 'Ladybug', row: 5, column: 0, playable: true, paperColor: LADYBUG_PAPER_COLOR, approximation: false },
-  { id: 'penguin', name: 'Penguin', row: 5, column: 1, playable: true, paperColor: PENGUIN_PAPER_COLOR, approximation: false },
 ];
 
 export const GALLERY_COLUMNS = 4;
-export const GALLERY_ROWS = 6;
+export const GALLERY_ROWS = 5;
 export const GALLERY_VISIBLE_ROWS = 2;
 
 export function animalById(id: string): AnimalDefinition | undefined {

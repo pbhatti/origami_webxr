@@ -16,8 +16,6 @@ const CARD_GRADIENTS: Record<AnimalId, readonly [string, string]> = {
   dinosaur: ['#fff6e8', '#ffd19a'],
   ladybug: ['#fff1ea', '#ffb199'],
   penguin: ['#e7f7ff', '#c9f4f6'],
-  rabbit: ['#f7f3ef', '#e7ddd5'],
-  elephant: ['#f4f0eb', '#e4d8ce'],
   bird: ['#f8f4ef', '#eadfd4'],
   swan: ['#fff7f1', '#f0dcc8'],
   crane: ['#f6f1ec', '#e8dcd0'],
