@@ -28,6 +28,11 @@ function installCanvasStub(): void {
 
 installCanvasStub();
 import { Group, Vector3 } from 'three';
+import { grabAdjustedAngle } from '../../src/origami/CreaseSolver.ts';
+import { deformByHinge } from '../../src/origami/MeshSplitter.ts';
+import { FOLD_ASSIST } from '../../src/origami/foldAssist.ts';
+import { sampleHitsRegion } from '../../src/input/GrabRegionMath.ts';
+import { PAPER_SIZE_M } from '../../src/origami/placement.ts';
 import type { FaceDefinition, MeshSnapshot, Vec3 } from '../../src/origami/types.ts';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
 import { origamiPaperMaterial } from '../../src/origami/OrigamiPaperMaterial.ts';
@@ -56,9 +61,13 @@ import {
   LADYBUG_SPOTS,
   LADYBUG_STEPS,
   LADYBUG_TIP_CREASE_FRAC,
+  LADYBUG_TIP_HIT_RADIUS_M,
+  LADYBUG_TIP_POINT,
+  LADYBUG_TIP_TARGET_LIFT_M,
   LADYBUG_TOP_CREASE_FRAC,
 } from '../../src/origami/recipes/ladybug.recipe.ts';
 import { LadybugPinch } from '../../src/origami/LadybugPinch.ts';
+import { LadybugTipTarget } from '../../src/origami/LadybugTipTarget.ts';
 import { LadybugCreature } from '../../src/animation/LadybugCreature.ts';
 import { PaperStage } from '../../src/origami/PaperStage.ts';
 
@@ -403,6 +412,145 @@ describe('origami ladybug recipe', () => {
     expect(stage.ladybugCreature.active).toBe(false);
     expect(stage.engine.fromSnapshot?.named?.L?.[0]).toBeLessThan(-0.1);
     stage.dispose();
+  });
+
+  it('folds only the head tip on a horizontal crease and commits at the snap threshold', () => {
+    const step = LADYBUG_RECIPE.steps.find((entry) => entry.id === 'ladybug-tip');
+    const topped = LADYBUG_RECIPE.snapshots.topped;
+    const tipped = LADYBUG_RECIPE.snapshots.tipped;
+    expect(step).toBeTruthy();
+    expect(topped).toBeTruthy();
+    expect(tipped).toBeTruthy();
+    const hinge = step!.hinge;
+    expect(hinge.p0[1]).toBeCloseTo(hinge.p1[1], 6);
+    expect(Math.abs(hinge.p0[0] - hinge.p1[0])).toBeGreaterThan(0.02);
+    expect(hinge.p0[2]).toBeCloseTo(0, 6);
+    expect(hinge.p1[2]).toBeCloseTo(0, 6);
+    expect(hinge.angleHint?.[1] ?? 0).toBeLessThan(hinge.p0[1]);
+    expect(hinge.angleHint?.[0] ?? 1).toBeCloseTo(0, 5);
+
+    const moved = deformByHinge(topped!, hinge, -180, topped!.named?.T);
+    expect(moved.movingVertexIds.size).toBe(1);
+    const tipIndex = [...moved.movingVertexIds][0] ?? -1;
+    const before = topped!.vertices[tipIndex];
+    const after = moved.snapshot.vertices[tipIndex];
+    expect(before).toBeTruthy();
+    expect(after).toBeTruthy();
+    expect(after![1]).toBeGreaterThan(before![1]);
+    expect(after![1]).toBeCloseTo(tipped!.named?.T?.[1] ?? 0, 5);
+    for (let index = 0; index < topped!.vertices.length; index += 1) {
+      if (moved.movingVertexIds.has(index)) {
+        continue;
+      }
+      const rest = topped!.vertices[index];
+      const next = moved.snapshot.vertices[index];
+      expect(rest).toBeTruthy();
+      expect(next?.[0]).toBeCloseTo(rest![0], 5);
+      expect(next?.[1]).toBeCloseTo(rest![1], 5);
+    }
+    for (const id of moved.movingFaceIds) {
+      expect(id.startsWith('top-')).toBe(true);
+      expect(id.startsWith('bot-')).toBe(false);
+    }
+
+    const tip = topped!.named?.T;
+    expect(tip).toBeTruthy();
+    const tipPoint = tip ?? [0, 0, 0];
+    expect(LADYBUG_TIP_HIT_RADIUS_M).toBeGreaterThan(0.012);
+    expect(LADYBUG_TIP_HIT_RADIUS_M).toBeLessThan(0.03);
+    expect(LADYBUG_TIP_TARGET_LIFT_M).toBeGreaterThan(0.004);
+    expect(sampleHitsRegion(tipPoint, step!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([tipPoint[0], tipPoint[1] + 0.012, 0.004], step!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([0, 0, 0], step!.movingRegion, PAPER_SIZE_M)).toBe(false);
+    expect(sampleHitsRegion([0, -0.1, 0], step!.movingRegion, PAPER_SIZE_M)).toBe(false);
+    expect(sampleHitsRegion([tipPoint[0], tipPoint[1], -0.05], step!.movingRegion, PAPER_SIZE_M)).toBe(false);
+
+    const above: [number, number, number] = [0, tipPoint[1] + 0.012, 0.004];
+    const half = PAPER_SIZE_M / 2;
+    const short = grabAdjustedAngle([above[0], above[1] + 0.001, above[2]], above, 0, 0, 180, half, hinge);
+    expect(short / 180).toBeGreaterThan(0);
+    expect(short / 180).toBeLessThan(FOLD_ASSIST.autoSnapThreshold);
+    const folded = grabAdjustedAngle([above[0], above[1] + 0.008, above[2]], above, 0, 0, 180, half, hinge);
+    expect(folded / 180).toBeGreaterThanOrEqual(FOLD_ASSIST.autoSnapThreshold);
+
+    const engine = new OrigamiEngine(LADYBUG_RECIPE, LADYBUG_NAMED);
+    for (let count = 0; count < 5; count += 1) {
+      commitCurrent(engine);
+    }
+    expect(engine.currentStep?.id).toBe('ladybug-tip');
+    engine.beginGrab(above);
+    engine.updateFold([above[0], above[1] + 0.001, above[2]], false, 16);
+    expect(engine.foldCompletion).toBeLessThan(FOLD_ASSIST.autoSnapThreshold);
+    expect(engine.release().ok).toBe(false);
+    drain(engine);
+    expect(engine.currentStep?.id).toBe('ladybug-tip');
+    expect(engine.isStepCommitted('ladybug-tip')).toBe(false);
+    expect(engine.angle).toBeCloseTo(0, 5);
+
+    engine.beginGrab(above);
+    engine.updateFold([above[0], above[1] + 0.008, above[2]], false, 16);
+    expect(engine.foldCompletion).toBeGreaterThanOrEqual(FOLD_ASSIST.autoSnapThreshold);
+    if (engine.enginePhase === 'folding') {
+      expect(engine.release().ok).toBe(true);
+    }
+    drain(engine);
+    expect(engine.isStepCommitted('ladybug-tip')).toBe(true);
+    expect(engine.currentStep?.id).toBe('ladybug-head');
+    expect(engine.currentStep?.fromSnapshotId).toBe('tipped');
+    expect(engine.fromSnapshot).toBe(tipped);
+    expect(engine.fromSnapshot?.named?.T?.[1]).toBeGreaterThan(topped!.named?.T?.[1] ?? 0);
+    expect(engine.fromSnapshot?.named?.B?.[1]).toBeCloseTo(-R, 4);
+    expect(engine.fromSnapshot?.named?.L?.[0]).toBeCloseTo(-R, 4);
+
+    engine.reset(LADYBUG_RECIPE, LADYBUG_NAMED);
+    expect(engine.currentStep?.id).toBe('ladybug-horizontal-fold');
+    expect(engine.isStepCommitted('ladybug-tip')).toBe(false);
+    expect(engine.fromSnapshot?.named?.T?.[1]).toBeGreaterThan(0.1);
+
+    const host = new Group();
+    const target = new LadybugTipTarget();
+    target.attach(host);
+    host.updateWorldMatrix(true, true);
+    expect(target.isActive).toBe(false);
+    expect(target.raycast(new Vector3(0, LADYBUG_TIP_POINT[1], 0.4), new Vector3(0, 0, -1))).toBeNull();
+    target.sync('ladybug-tip', LADYBUG_TIP_POINT);
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'info').mockImplementation((message?: unknown) => {
+      lines.push(String(message));
+    });
+    target.observe({
+      stepId: 'ladybug-tip',
+      angleDeg: 0,
+      progress: 0,
+      phase: 'idle',
+      tipCommitted: false,
+      hinge,
+    });
+    expect(lines.some((line) => line.startsWith('[ladybug-step3] active') && line.includes('mesh=ladybug-tip-flap'))).toBe(true);
+    spy.mockImplementation(() => {});
+    const onTip = new Vector3(LADYBUG_TIP_POINT[0], LADYBUG_TIP_POINT[1], 0.004);
+    const behind = new Vector3(LADYBUG_TIP_POINT[0], LADYBUG_TIP_POINT[1], -0.02);
+    const body = new Vector3(0, 0, 0.004);
+    expect(target.contains(onTip)).toBe(true);
+    expect(target.contains(behind)).toBe(false);
+    expect(target.contains(body)).toBe(false);
+    const hit = target.raycast(new Vector3(LADYBUG_TIP_POINT[0], LADYBUG_TIP_POINT[1], 0.4), new Vector3(0, 0, -1));
+    expect(hit).toBeTruthy();
+    expect(hit!.z).toBeGreaterThan(0.008);
+    expect(target.raycast(new Vector3(0, 0, 0.4), new Vector3(0, 0, -1))).toBeNull();
+    expect(target.meshId).toBe('ladybug-tip-flap');
+
+    const stage = new PaperStage();
+    stage.loadAnimal('ladybug');
+    stage.prepareLadybugStep(3);
+    expect(stage.engine.currentStep?.id).toBe('ladybug-tip');
+    expect(stage.ladybugTip.isActive).toBe(true);
+    stage.restartOrigamiSession(null);
+    expect(stage.engine.currentStep?.id).toBe('ladybug-horizontal-fold');
+    expect(stage.engine.isStepCommitted('ladybug-tip')).toBe(false);
+    expect(stage.ladybugTip.isActive).toBe(false);
+    stage.dispose();
+    target.dispose();
   });
 
 });

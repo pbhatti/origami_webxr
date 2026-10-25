@@ -1,5 +1,6 @@
 import { createSystem } from '@iwsdk/core';
 import { Matrix4, Vector3, type Group } from 'three';
+import type { LadybugTipTarget } from '../origami/LadybugTipTarget.ts';
 import type { DebugEvents } from '../telemetry/DebugEvents.ts';
 import type { GrabRegion, Vec3 } from '../origami/types.ts';
 import { handAimFromJoints } from '../origami/PaperMover.ts';
@@ -35,6 +36,10 @@ const _leftRayHit = new Vector3();
 const _rightRayOrigin = new Vector3();
 const _rightRayDir = new Vector3();
 const _rightRayHit = new Vector3();
+const _tipOriginL = new Vector3();
+const _tipDirL = new Vector3();
+const _tipOriginR = new Vector3();
+const _tipDirR = new Vector3();
 
 interface AimedRay {
   origin: Vector3;
@@ -69,6 +74,7 @@ export interface HandInteractionHandlers {
     raycast(origin: Vector3, direction: Vector3): boolean;
     setHover(hovered: boolean): void;
   };
+  ladybugTip?: LadybugTipTarget;
   penguinPinch?: {
     contains(worldPoint: Vector3): boolean;
     raycast(origin: Vector3, direction: Vector3): boolean;
@@ -233,6 +239,54 @@ function worldPointForHand(sample: HandSample, paperRoot: Group, target: Vector3
   return null;
 }
 
+function aimFromSample(
+  sample: HandSample,
+  origin: Vector3,
+  direction: Vector3,
+): { origin: Vector3; direction: Vector3 } | null {
+  if (sample.rayOrigin && sample.rayDirection) {
+    origin.set(sample.rayOrigin[0], sample.rayOrigin[1], sample.rayOrigin[2]);
+    direction.set(sample.rayDirection[0], sample.rayDirection[1], sample.rayDirection[2]);
+  } else if (sample.wrist && sample.pinchMidpoint) {
+    origin.set(sample.wrist[0], sample.wrist[1], sample.wrist[2]);
+    direction.set(
+      sample.pinchMidpoint[0] - sample.wrist[0],
+      sample.pinchMidpoint[1] - sample.wrist[1],
+      sample.pinchMidpoint[2] - sample.wrist[2],
+    );
+  } else {
+    return null;
+  }
+  if (direction.lengthSq() < 1e-8) {
+    return null;
+  }
+  direction.normalize();
+  return { origin, direction };
+}
+
+function preferLadybugTip(
+  tip: LadybugTipTarget,
+  sample: HandSample,
+  handPoint: Vector3 | null,
+  target: Vector3,
+  origin: Vector3,
+  direction: Vector3,
+): string {
+  if (handPoint && tip.contains(handPoint)) {
+    return tip.meshId;
+  }
+  const aim = aimFromSample(sample, origin, direction);
+  if (!aim) {
+    return 'none';
+  }
+  const hit = tip.raycast(aim.origin, aim.direction);
+  if (!hit) {
+    return 'none';
+  }
+  target.copy(hit);
+  return tip.meshId;
+}
+
 function mergeSample(xr: HandSample, simulated: HandSample): HandSample {
   return simulated.valid ? simulated : xr;
 }
@@ -288,8 +342,23 @@ export function createHandInteractionSystem(handlers: HandInteractionHandlers) {
       const right = mergeSample(xrSamples.right, sim.right);
       const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-      const leftWorld = worldPointForHand(left, paperRoot, _leftWorld);
-      const rightWorld = worldPointForHand(right, paperRoot, _rightWorld);
+      const folding = handlers.session.getOwnership().fold != null;
+      const tip = handlers.ladybugTip;
+      const tipWasActive = Boolean(tip?.isActive);
+      let leftRayTarget = 'none';
+      let rightRayTarget = 'none';
+      let leftWorld = worldPointForHand(left, paperRoot, _leftWorld);
+      let rightWorld = worldPointForHand(right, paperRoot, _rightWorld);
+      if (tip?.isActive && !folding) {
+        leftRayTarget = preferLadybugTip(tip, left, leftWorld, _leftWorld, _tipOriginL, _tipDirL);
+        rightRayTarget = preferLadybugTip(tip, right, rightWorld, _rightWorld, _tipOriginR, _tipDirR);
+        if (leftRayTarget === tip.meshId) {
+          leftWorld = _leftWorld;
+        }
+        if (rightRayTarget === tip.meshId) {
+          rightWorld = _rightWorld;
+        }
+      }
       const leftLocal = leftWorld ? worldToPaperLocal(paperRoot, leftWorld) : null;
       const rightLocal = rightWorld ? worldToPaperLocal(paperRoot, rightWorld) : null;
 
@@ -434,6 +503,21 @@ export function createHandInteractionSystem(handlers: HandInteractionHandlers) {
         nowMs,
       );
       handlers.onSnapshot(snapshot, delta * 1000);
+      if (tip && (tipWasActive || tip.isActive)) {
+        const raycastTarget = leftRayTarget !== 'none' ? leftRayTarget : rightRayTarget;
+        const onFlap =
+          raycastTarget === tip.meshId ||
+          snapshot.grabRegionId === 'moving-tip' ||
+          snapshot.left.region === 'moving' ||
+          snapshot.right.region === 'moving';
+        tip.notePointer({
+          pinching: snapshot.left.pinch === 'closed' || snapshot.right.pinch === 'closed',
+          started: snapshot.left.pinchEvent === 'started' || snapshot.right.pinchEvent === 'started',
+          ended: snapshot.left.pinchEvent === 'released' || snapshot.right.pinchEvent === 'released',
+          raycastTarget: onFlap ? tip.meshId : 'none',
+          selected: onFlap,
+        });
+      }
     }
 
     private applyPaperMove(

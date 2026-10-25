@@ -35,6 +35,8 @@ interface GuideLane {
   press: boolean;
 }
 
+const ignoreGuideRaycast: Mesh['raycast'] = () => {};
+
 function ribbonOpacity(mesh: Mesh, opacity: number): void {
   const material = mesh.material as MeshBasicMaterial;
   material.opacity = opacity;
@@ -56,6 +58,7 @@ export class FoldGuides {
   private toSnapshot: MeshSnapshot | null = null;
   private appearance = '';
   private activeStepId: string | null = null;
+  private guidesPickable = true;
 
   constructor() {
     this.group.name = 'fold-fly-guides';
@@ -85,6 +88,7 @@ export class FoldGuides {
     (this.ghost.material as LineBasicMaterial).dispose();
     this.ghost = this.makeGhost(this.toSnapshot);
     this.group.add(this.ghost);
+    this.applyGuideRaycast();
   }
 
   setLockedCreases(creases: RecipeCrease[]): void {
@@ -92,6 +96,19 @@ export class FoldGuides {
     for (const crease of creases) {
       this.history.add(this.makeCreaseRibbon([crease.p0, crease.p1], 0.42));
     }
+    this.applyGuideRaycast();
+  }
+
+  /**
+   * Crease ribbons and arrows are visual. During the ladybug head-tip fold
+   * they must not win a raycast over the flap pad in front of them.
+   */
+  setGuideRaycastEnabled(enabled: boolean): void {
+    if (this.guidesPickable === enabled) {
+      return;
+    }
+    this.guidesPickable = enabled;
+    this.applyGuideRaycast();
   }
 
   tick(dtSec: number, state: FoldGuideTickState | boolean): void {
@@ -178,6 +195,7 @@ export class FoldGuides {
         completed,
         press: stepActionType(step) === 'crease-press',
       });
+      this.applyGuideRaycast();
     });
   }
 
@@ -227,6 +245,21 @@ export class FoldGuides {
     lane.head.position.z += CREASE_GUIDE.liftM + 0.0004;
     if (sample.tangent.lengthSq() > 1e-8) {
       lane.head.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), sample.tangent.normalize());
+    }
+  }
+
+  private applyGuideRaycast(): void {
+    const raycast = this.guidesPickable ? Mesh.prototype.raycast : ignoreGuideRaycast;
+    for (const lane of this.lanes) {
+      lane.crease.raycast = raycast;
+      lane.arrow.raycast = raycast;
+      lane.head.raycast = raycast;
+    }
+    this.ghost.raycast = raycast;
+    for (const child of [...this.history.children, ...this.extras.children]) {
+      if (child instanceof Mesh) {
+        child.raycast = raycast;
+      }
     }
   }
 

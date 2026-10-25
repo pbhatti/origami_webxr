@@ -61,7 +61,16 @@ export function sampleHitsRegion(
   if (Math.abs(local[2]) > depthToleranceM) {
     return false;
   }
-  return pointInPolygon(paperLocalToUv(local, sheetSizeM), region.polygonUV);
+  if (pointInPolygon(paperLocalToUv(local, sheetSizeM), region.polygonUV)) {
+    return true;
+  }
+  const disk = region.hitDisk;
+  if (!disk || disk.radiusM <= 0) {
+    return false;
+  }
+  const dx = local[0] - disk.center[0];
+  const dy = local[1] - disk.center[1];
+  return dx * dx + dy * dy <= disk.radiusM * disk.radiusM;
 }
 
 export function classifyGrab(

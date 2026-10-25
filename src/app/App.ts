@@ -196,6 +196,7 @@ export class App {
           turtlePinch: this.stage.turtlePinch,
           dinosaurPinch: this.stage.dinosaurPinch,
           ladybugPinch: this.stage.ladybugPinch,
+          ladybugTip: this.stage.ladybugTip,
           penguinPinch: this.stage.penguinPinch,
           mover: this.stage.mover,
           indicators: this.indicators,

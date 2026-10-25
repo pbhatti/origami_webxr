@@ -104,8 +104,9 @@ export function grabAdjustedAngle(
   hinge?: HingeDefinition,
 ): number {
   const resolved = hinge ?? defaultHinge(halfExtentM);
-  const now = hingeAngleDeg(local, halfExtentM, resolved, grabLocal);
-  const atGrab = hingeAngleDeg(grabLocal, halfExtentM, resolved, grabLocal);
+  const hint = resolved.angleHint ?? grabLocal;
+  const now = hingeAngleDeg(local, halfExtentM, resolved, hint);
+  const atGrab = hingeAngleDeg(grabLocal, halfExtentM, resolved, hint);
   const span = Math.max(maxAngleDeg - atGrab, 0.0001);
   const t = (now - atGrab) / span;
   return clamp(startAngleDeg + t * (maxAngleDeg - startAngleDeg), minAngleDeg, maxAngleDeg);

@@ -45,6 +45,11 @@ export interface HingeDefinition {
    * so a nested tip can move without taking a newer flap along.
    */
   maxMovingLayer?: number;
+  /**
+   * Point on the moving side of the hinge. Hand tracking uses it so a grab
+   * that starts across the crease still rotates that flap the right way.
+   */
+  angleHint?: Vec3;
 }
 
 export interface CoupledHinge extends HingeDefinition {
@@ -64,6 +69,11 @@ export interface GrabRegion {
   polygonUV: Vec2[];
   allowedHands: 'either' | 'left' | 'right';
   layer?: number;
+  /**
+   * Extra grab disk in paper-local meters. The visible polygon stays the
+   * real flap; this is the invisible pad around a tip that is too small to pinch.
+   */
+  hitDisk?: { center: Vec3; radiusM: number };
 }
 
 export interface RecipeCrease {

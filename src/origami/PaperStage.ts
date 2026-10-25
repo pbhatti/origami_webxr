@@ -52,6 +52,8 @@ import { BAT_NAMED, BAT_PAPER_COLOR, BAT_RECIPE } from './recipes/bat.recipe.ts'
 import { DINOSAUR_NAMED, DINOSAUR_PAPER_COLOR, DINOSAUR_RECIPE } from './recipes/dinosaur.recipe.ts';
 import { DinosaurPinch } from './DinosaurPinch.ts';
 import { LadybugPinch } from './LadybugPinch.ts';
+import { LadybugTipTarget } from './LadybugTipTarget.ts';
+import { landmarkAfterHinge } from './CreaseSolver.ts';
 import { PenguinPinch } from './PenguinPinch.ts';
 import { OwlPinch } from './OwlPinch.ts';
 import { TurtlePinch } from './TurtlePinch.ts';
@@ -106,6 +108,7 @@ export class PaperStage {
   readonly turtlePinch = new TurtlePinch();
   readonly dinosaurPinch = new DinosaurPinch();
   readonly ladybugPinch = new LadybugPinch();
+  readonly ladybugTip = new LadybugTipTarget();
   readonly penguinPinch = new PenguinPinch();
   private faceRevealMs = -1;
   private faceCommit = false;
@@ -178,6 +181,7 @@ export class PaperStage {
     this.turtlePinch.attach(this.sheet.group);
     this.dinosaurPinch.attach(this.sheet.group);
     this.ladybugPinch.attach(this.sheet.group);
+    this.ladybugTip.attach(this.sheet.group);
     this.penguinPinch.attach(this.sheet.group);
     this.scaleRoot.add(this.sheet.group);
     this.paperRoot.add(
@@ -283,6 +287,7 @@ export class PaperStage {
     this.turtlePinch.reset();
     this.dinosaurPinch.reset();
     this.ladybugPinch.reset();
+    this.ladybugTip.reset();
     this.penguinPinch.reset();
     this.faceRevealMs = -1;
     this.faceCommit = false;
@@ -517,6 +522,7 @@ export class PaperStage {
     this.turtlePinch.reset();
     this.dinosaurPinch.reset();
     this.ladybugPinch.reset();
+    this.ladybugTip.reset();
     this.penguinPinch.reset();
     this.faceRevealMs = -1;
     this.faceCommit = false;
@@ -604,6 +610,7 @@ export class PaperStage {
   applyFoldVisuals(folding: boolean): void {
     this.sheet.apply(this.engine.currentStep, this.engine.fromSnapshot, this.engine.toSnapshot, this.engine.angle);
     this.guides.tick(0, this.guideState(folding));
+    this.syncLadybugTip();
     this.creaseDebug.setVisible(this.debugVisible);
     this.creaseDebug.update(
       this.engine.currentStep,
@@ -676,6 +683,7 @@ export class PaperStage {
       this.tickFaceReveal(1000 / 72);
     }
     this.guides.tick(1 / 72, this.guideState(this.engine.enginePhase === 'folding'));
+    this.syncLadybugTip();
     this.feedback.tick(1000 / 72);
     this.sheet.syncDepthDebug();
     this.manipulator.setAssembly(this.sheet.layerCount);
@@ -972,6 +980,7 @@ export class PaperStage {
   prepareLadybugStep(stage: number): number {
     const target = Math.min(7, Math.max(1, Math.round(stage)));
     this.ladybugPinch.reset();
+    this.ladybugTip.reset();
     this.owlOpenStepId = null;
     this.ladybugCreature.stop();
     this.engine.reset(LADYBUG_RECIPE, LADYBUG_NAMED);
@@ -1190,6 +1199,25 @@ export class PaperStage {
     }
   }
 
+  private syncLadybugTip(): void {
+    const step = this.animalId === 'ladybug' ? this.engine.currentStep : null;
+    const rest = this.engine.fromSnapshot?.named?.T ?? null;
+    let tip = rest;
+    if (step?.id === 'ladybug-tip' && rest && step.hinge) {
+      tip = landmarkAfterHinge(rest, step.hinge, this.engine.angle, step.direction);
+    }
+    this.ladybugTip.sync(step?.id ?? null, tip);
+    this.ladybugTip.observe({
+      stepId: step?.id ?? null,
+      angleDeg: step ? this.engine.angle : 0,
+      progress: step ? this.engine.foldCompletion : 0,
+      phase: this.engine.enginePhase,
+      tipCommitted: this.engine.isStepCommitted('ladybug-tip'),
+      hinge: step?.id === 'ladybug-tip' ? step.hinge : null,
+    });
+    this.guides.setGuideRaycastEnabled(step?.id !== 'ladybug-tip');
+  }
+
   private guideState(folding: boolean) {
     return {
       folding: folding || this.engine.enginePhase === 'folding',
@@ -1207,6 +1235,7 @@ export class PaperStage {
     }
     this.guides.setStep(step, this.engine.toSnapshot, this.engine.guideSteps(), this.engine.completedStepIds());
     this.guides.setLockedCreases(this.engine.lockedCreases);
+    this.syncLadybugTip();
     this.creaseDebug.update(step, from, this.engine.angle, this.engine.guideSteps());
     const pending = this.engine.pendingParallelSteps();
     this.overlay.setRegions(step?.movingRegion, step?.optionalHoldRegion, pending.map((entry) => entry.movingRegion));

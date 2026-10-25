@@ -103,6 +103,14 @@ export const LADYBUG_SEAM: { from: Vec3; to: Vec3; width: number } = {
 
 export const LADYBUG_FEATURE_Z = 0.0065;
 export const LADYBUG_PINCH_AT: Vec3 = [0, -0.22 * R, 0.012];
+/**
+ * Invisible grab pad around the step-3 tip. The folded point is only a few
+ * millimetres tall, so Quest fingers need a disk about 2 cm across the flap,
+ * sitting in front of the sheet rather than behind it.
+ */
+export const LADYBUG_TIP_HIT_RADIUS_M = 0.02;
+/** Lift of that pad toward the viewer, ahead of the paper and the crease guide. */
+export const LADYBUG_TIP_TARGET_LIFT_M = 0.012;
 
 function uvOf(point: Vec3): Vec2 {
   return [point[0] / PAPER_SIZE_M + 0.5, point[1] / PAPER_SIZE_M + 0.5];
@@ -312,18 +320,25 @@ const topped: MeshSnapshot = {
   named: { ...REST, T: T_DOWN },
 };
 
-const HINGE_TIP: HingeDefinition = faceViewer(
-  {
-    id: 'ladybug-tip',
-    p0: [-TIP_HALF, TIP_Y, 0],
-    p1: [TIP_HALF, TIP_Y, 0],
-    fixedFaces: ['bot-left', 'bot-right'],
-    movingFaces: ['top-left', 'top-right'],
-    minMovingLayer: toppedFold.minLayer,
-    reachM: 0.2 * R + 0.008,
-  },
-  T_DOWN,
-);
+const HINGE_TIP: HingeDefinition = {
+  ...faceViewer(
+    {
+      id: 'ladybug-tip',
+      p0: [-TIP_HALF, TIP_Y, 0],
+      p1: [TIP_HALF, TIP_Y, 0],
+      fixedFaces: ['bot-left', 'bot-right'],
+      movingFaces: ['top-left', 'top-right'],
+      minMovingLayer: toppedFold.minLayer,
+      reachM: 0.2 * R + 0.008,
+    },
+    T_DOWN,
+  ),
+  // Keep the moving hint on the tip itself. A finger that lands just above
+  // the short crease must still swing that tip upward, not the sheet.
+  angleHint: T_DOWN,
+};
+
+export const LADYBUG_TIP_POINT: Vec3 = T_DOWN;
 
 const tippedFold = foldStacked(topped, HINGE_TIP, T_DOWN);
 const T_UP = landmarkAfterHinge(T_DOWN, HINGE_TIP, 180, 'valley');
@@ -709,6 +724,7 @@ export const LADYBUG_RECIPE: OrigamiRecipe = {
         faceIds: ['top-left', 'top-right'],
         polygonUV: uvPoly([[-TIP_HALF, TIP_Y, 0], T_DOWN, [TIP_HALF, TIP_Y, 0]]),
         allowedHands: 'either',
+        hitDisk: { center: T_DOWN, radiusM: LADYBUG_TIP_HIT_RADIUS_M },
       },
       startAngleDeg: 0,
       targetAngleDeg: 180,
