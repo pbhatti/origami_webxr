@@ -19,20 +19,27 @@ const BR: Vec3 = [H, -H, 0];
 const BL: Vec3 = [-H, -H, 0];
 const O: Vec3 = [0, 0, 0];
 
-/** How far the lower-left tip travels when it becomes the head. */
-const TIP = 0.034;
+/**
+ * Step 4 crease from the reference diagram. The diagonal meets the left
+ * sloping edge this far from the lower-left corner toward the apex, and the
+ * lower edge this far from that corner toward the right. It stays in the
+ * corner: it does not run on to the apex or the right point.
+ */
+const HEAD_LEG_FRAC = 0.227;
+const HEAD_BASE_FRAC = 0.435;
 
-const LEG = Math.hypot(H, H);
-const TIP_T = TIP / LEG;
-const P_LEG: Vec3 = [BL[0] + (O[0] - BL[0]) * TIP_T, BL[1] + (O[1] - BL[1]) * TIP_T, 0];
-const P_BASE: Vec3 = [BL[0] + TIP, BL[1], 0];
+const P_LEG: Vec3 = [
+  BL[0] + (O[0] - BL[0]) * HEAD_LEG_FRAC,
+  BL[1] + (O[1] - BL[1]) * HEAD_LEG_FRAC,
+  0,
+];
+const P_BASE: Vec3 = [BL[0] + (BR[0] - BL[0]) * HEAD_BASE_FRAC, BL[1], 0];
 
 export const TURTLE_STEPS = [
   'diagonal-creases',
   'upper-right-corner',
   'shell-shape',
   'head-tip',
-  'head-neck',
   'turtle-decoration',
 ] as const;
 
@@ -151,6 +158,8 @@ const HINGE_HEAD: HingeDefinition = faceViewer(
     fixedFaces: [],
     movingFaces: ['north', 'east', 'south', 'west'],
     layerMode: 'packet',
+    // Only the corner beside this short segment. The half-plane beyond it stays put.
+    reachM: 0.045,
   },
   BL,
 );
@@ -182,66 +191,47 @@ const shell = {
 const TL_SHELL = landmarkAfterHinge(TL, HINGE_SHELL, 180, 'valley');
 shell.named = { ...flap.named, TL: TL_SHELL };
 
-const headed = {
-  ...foldStacked(shell, HINGE_HEAD, BL),
-  outline: [O, BR, P_BASE, P_LEG],
-};
 const BL_UP = landmarkAfterHinge(BL, HINGE_HEAD, 180, 'valley');
-headed.named = { ...shell.named, BL: BL_UP };
 
-/**
- * The raised tip sits on top of the shell. A short crease just inside the
- * shell's left edge swings that flap out to the left. Only the raised layers
- * travel, so the shell underneath stays where it is.
- */
-const NECK_X = P_LEG[0] + 0.0022;
-
-function crossVertical(a: Vec3, b: Vec3, x: number): Vec3 | null {
-  const dx = b[0] - a[0];
-  if (Math.abs(dx) < 1e-6) {
-    return null;
-  }
-  const t = (x - a[0]) / dx;
-  if (t < -0.02 || t > 1.02) {
-    return null;
-  }
-  const u = Math.min(1, Math.max(0, t));
-  return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, 0];
+function segmentCross(a: Vec3, b: Vec3, c: Vec3, d: Vec3): Vec3 {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const cdx = d[0] - c[0];
+  const cdy = d[1] - c[1];
+  const den = abx * cdy - aby * cdx || 1;
+  const t = ((c[0] - a[0]) * cdy - (c[1] - a[1]) * cdx) / den;
+  return [a[0] + abx * t, a[1] + aby * t, 0];
 }
 
-const NECK_HITS = [crossVertical(P_LEG, P_BASE, NECK_X), crossVertical(P_BASE, BL_UP, NECK_X), crossVertical(BL_UP, P_LEG, NECK_X)].filter(
-  (point): point is Vec3 => point != null,
-);
-const NECK_A: Vec3 = NECK_HITS[0] ?? P_LEG;
-const NECK_B: Vec3 = NECK_HITS[1] ?? P_BASE;
-const NECK_CENTER: Vec3 = [(NECK_A[0] + NECK_B[0]) / 2, (NECK_A[1] + NECK_B[1]) / 2, 0];
+/** Where the folded flap crosses the shell's left edge. The tip sits outside that edge. */
+const HEAD_EDGE = segmentCross(BL_UP, P_BASE, O, BL);
+const HEAD_MID: Vec3 = [
+  (BL_UP[0] + P_LEG[0] + HEAD_EDGE[0]) / 3,
+  (BL_UP[1] + P_LEG[1] + HEAD_EDGE[1]) / 3,
+  0,
+];
 
-const HINGE_NECK: HingeDefinition = faceViewer(
-  {
-    id: 'turtle-neck',
-    p0: NECK_A,
-    p1: NECK_B,
-    fixedFaces: [],
-    movingFaces: ['north', 'east', 'south', 'west'],
-    minMovingLayer: 4,
-  },
-  BL_UP,
-);
+/**
+ * Outer boundary of the folded sheet. The corner triangle is gone, so the
+ * crease is an edge, and the head is the part of the flap past the left slope.
+ * Joining the tip straight to the crease endpoint crosses that slope.
+ */
+const TURTLE_OUTLINE: Vec3[] = [O, BR, P_BASE, P_LEG, BL_UP, HEAD_EDGE];
 
-const BL_OUT = landmarkAfterHinge(BL_UP, HINGE_NECK, 180, 'valley');
-const neck = {
-  ...foldStacked(headed, HINGE_NECK, BL_UP),
-  outline: [O, BR, P_BASE, BL_OUT, P_LEG],
+const headed = {
+  ...foldStacked(shell, HINGE_HEAD, BL),
+  outline: TURTLE_OUTLINE,
 };
-neck.named = { ...headed.named, BL: BL_OUT };
+headed.named = { ...shell.named, BL: BL_UP };
 
-const turtle = { ...neck, outline: neck.outline };
+const turtle = { ...headed, outline: TURTLE_OUTLINE };
 
-export const TURTLE_HEAD_TIP = BL_OUT;
+export const TURTLE_HEAD_TIP = BL_UP;
 export const TURTLE_FEATURE_Z = 0.012;
+/** On the protruding head, toward the tip, where the reference places the eye. */
 export const TURTLE_EYE: Vec3 = [
-  BL_OUT[0] + (NECK_CENTER[0] - BL_OUT[0]) * 0.42,
-  BL_OUT[1] + (NECK_CENTER[1] - BL_OUT[1]) * 0.42,
+  HEAD_MID[0] + (BL_UP[0] - HEAD_MID[0]) * 0.62,
+  HEAD_MID[1] + (BL_UP[1] - HEAD_MID[1]) * 0.62,
   TURTLE_FEATURE_Z,
 ];
 export const TURTLE_SHELL: Vec3[] = [O, BR, P_BASE, P_LEG];
@@ -260,7 +250,6 @@ export const TURTLE_RECIPE: OrigamiRecipe = {
     { id: 'turtle-diag-b', p0: HINGE_DIAG_B.p0, p1: HINGE_DIAG_B.p1, direction: 'valley' },
     { id: 'turtle-shell', p0: HINGE_SHELL.p0, p1: HINGE_SHELL.p1, direction: 'valley' },
     { id: 'turtle-head', p0: HINGE_HEAD.p0, p1: HINGE_HEAD.p1, direction: 'valley' },
-    { id: 'turtle-neck', p0: HINGE_NECK.p0, p1: HINGE_NECK.p1, direction: 'valley' },
   ],
   snapshots: {
     square,
@@ -269,10 +258,9 @@ export const TURTLE_RECIPE: OrigamiRecipe = {
     flap,
     shell,
     headed,
-    neck,
     turtle,
   },
-  finalSilhouette: [O, BR, P_BASE, BL_OUT, P_LEG],
+  finalSilhouette: TURTLE_OUTLINE,
   silhouetteToleranceM: 0.04,
   steps: [
     step({
@@ -461,7 +449,7 @@ export const TURTLE_RECIPE: OrigamiRecipe = {
       direction: 'valley',
       movingRegion: {
         id: 'moving-head-tip',
-        faceIds: ['south', 'west'],
+        faceIds: ['north', 'east', 'south', 'west'],
         polygonUV: uvPoly([P_LEG, BL, P_BASE]),
         allowedHands: 'either',
       },
@@ -470,47 +458,21 @@ export const TURTLE_RECIPE: OrigamiRecipe = {
       minAngleDeg: 0,
       maxAngleDeg: 180,
       targetLandmarks: [{ sourceVertexId: 'BL', target: BL_UP }],
-      arrowPathLocal: arc([BL[0] + 0.01, BL[1] + 0.008, 0.004], [BL_UP[0], BL_UP[1] - 0.006, 0.004], 0.02),
+      arrowPathLocal: arc([BL[0] - 0.008, BL[1] + 0.002, 0.008], [BL_UP[0] - 0.004, BL_UP[1] + 0.01, 0.016], 0.024),
       meshStrategy: 'hinge',
-      validationNotes: 'Step 4. The lower-left tip folds up around a short crease.',
-    }),
-    step({
-      id: 'turtle-neck',
-      ordinal: 8,
-      progressStage: 5,
-      title: 'Finish the head',
-      instruction: "Complete the turtle's head.",
-      fromSnapshotId: 'headed',
-      toSnapshotId: 'neck',
-      actionType: 'fold',
-      hinge: HINGE_NECK,
-      direction: 'valley',
-      movingRegion: {
-        id: 'moving-neck',
-        faceIds: ['south', 'west'],
-        polygonUV: uvPoly([P_LEG, BL_UP, P_BASE]),
-        allowedHands: 'either',
-      },
-      startAngleDeg: 0,
-      targetAngleDeg: 180,
-      minAngleDeg: 0,
-      maxAngleDeg: 180,
-      targetLandmarks: [{ sourceVertexId: 'BL', target: BL_OUT }],
-      arrowPathLocal: arc([BL_UP[0] + 0.006, BL_UP[1], 0.004], [BL_OUT[0] + 0.008, BL_OUT[1], 0.004], 0.016),
-      meshStrategy: 'hinge',
-      validationNotes: 'Step 5. A small adjustment points the head to the left. The shell stays one piece of paper.',
+      validationNotes: 'Step 4. The lower-left corner folds up around a short diagonal. The tip becomes the head.',
     }),
     step({
       id: 'turtle-decorate',
-      ordinal: 9,
-      progressStage: 6,
+      ordinal: 8,
+      progressStage: 5,
       title: 'Bring your turtle to life',
       instruction: 'Pinch to bring your turtle to life!',
-      fromSnapshotId: 'neck',
+      fromSnapshotId: 'headed',
       toSnapshotId: 'turtle',
       actionType: 'crease-press',
       creasePressHoldMs: 650,
-      hinge: { ...HINGE_DIAG_A, id: 'turtle-decorate' },
+      hinge: { ...HINGE_HEAD, id: 'turtle-decorate', movingFaces: [], fixedFaces: ['north', 'east', 'south', 'west'] },
       direction: 'valley',
       movingRegion: {
         id: 'moving-turtle-body',
@@ -525,7 +487,7 @@ export const TURTLE_RECIPE: OrigamiRecipe = {
       targetLandmarks: [],
       arrowPathLocal: arc([-0.02, TURTLE_PINCH_AT[1], 0.01], [0.02, TURTLE_PINCH_AT[1], 0.01], 0.012),
       meshStrategy: 'crease-press',
-      validationNotes: 'Step 6. One pinch reveals the eye and the shell markings, then the success state.',
+      validationNotes: 'Step 5. One pinch reveals the eye and the shell markings, then the success state.',
     }),
   ],
   finalCreatureAsset: 'folded-paper-turtle',
@@ -574,11 +536,14 @@ export function turtleShellHexes(radius = TURTLE_HEX_RADIUS): TurtleHexMark[] {
       if (!insideTriangle(x, y, shell[0]!, shell[1]!, shell[2]!)) {
         continue;
       }
+      if (insideTriangle(x, y, P_LEG, BL, P_BASE) || insideTriangle(x, y, P_LEG, P_BASE, BL_UP)) {
+        continue;
+      }
       const clear = shell.every((start, edge) => {
         const end = shell[(edge + 1) % shell.length]!;
         return distToSegment(x, y, start[0], start[1], end[0], end[1]) >= margin;
       });
-      if (!clear || (x < -0.048 && y < -0.07)) {
+      if (!clear) {
         continue;
       }
       marks.push({ x, y, alt: (col + row) % 2 === 1 });

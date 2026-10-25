@@ -836,7 +836,7 @@ export class PaperStage {
   }
 
   prepareTurtleStep(stage: number): number {
-    const target = Math.min(6, Math.max(1, Math.round(stage)));
+    const target = Math.min(5, Math.max(1, Math.round(stage)));
     this.turtlePinch.reset();
     this.owlOpenStepId = null;
     this.turtleCreature.stop();

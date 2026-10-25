@@ -1125,7 +1125,7 @@ export class App {
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
         }
-      } else if (stage <= 7 && this.stage.activeAnimal === 'turtle' && stage <= 6) {
+      } else if (stage <= 7 && this.stage.activeAnimal === 'turtle' && stage <= 5) {
         this.stage.prepareTurtleStep(stage);
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
