@@ -898,7 +898,7 @@ export class PaperStage {
   }
 
   prepareOwlStep(stage: number): number {
-    const target = Math.min(6, Math.max(1, Math.round(stage)));
+    const target = Math.min(7, Math.max(1, Math.round(stage)));
     this.owlPinch.reset();
     this.owlOpenStepId = null;
     this.owlCreature.stop();

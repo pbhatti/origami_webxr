@@ -24,6 +24,7 @@ const EXACT: Record<string, { back: string; edge: string }> = {
   '#ffc547': { back: '#ffe29a', edge: '#c98c24' },
   '#f45132': { back: '#fff1ea', edge: '#bd3527' },
   '#27b9ea': { back: '#f8fcff', edge: '#1688b5' },
+  '#c98245': { back: '#f7f2e9', edge: '#98552f' },
 };
 
 const DESIGNED: Array<{ front: string; edgeHue: number }> = [
@@ -31,6 +32,7 @@ const DESIGNED: Array<{ front: string; edgeHue: number }> = [
   { front: '#d9782f', edgeHue: -10 },
   { front: '#9564ad', edgeHue: -16 },
   { front: '#4e9a4a', edgeHue: -22 },
+  { front: '#c98245', edgeHue: -12 },
   { front: MOUSE_PAPER_COLOR, edgeHue: -28 },
 ];
 

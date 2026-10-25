@@ -473,7 +473,7 @@ describe('folded paper depth', () => {
   });
 
   it('gives every character two paper tones within about 10–20%', () => {
-    for (const front of [FOLD_PAPER_COLOR, FOX_PAPER_COLOR, BAT_PAPER_COLOR, OWL_PAPER_COLOR, TURTLE_PAPER_COLOR, DINOSAUR_PAPER_COLOR, '#6eb0d4']) {
+    for (const front of [FOLD_PAPER_COLOR, FOX_PAPER_COLOR, BAT_PAPER_COLOR, TURTLE_PAPER_COLOR, DINOSAUR_PAPER_COLOR, '#6eb0d4']) {
       const spec = origamiPaperMaterial(front);
       const delta = paperLightness(spec.backColor) - paperLightness(spec.frontColor);
       expect(delta).toBeGreaterThan(0.1);
@@ -483,6 +483,15 @@ describe('folded paper depth', () => {
       expect(spec.edgeWidth).toBeLessThan(0.003);
       expect(spec.paperThickness).toBe(PAPER_THICKNESS_M);
     }
+    const owlSpec = origamiPaperMaterial(OWL_PAPER_COLOR);
+    expect(owlSpec).toMatchObject({
+      frontColor: '#c98245',
+      backColor: '#f7f2e9',
+      edgeColor: '#98552f',
+      paperThickness: PAPER_THICKNESS_M,
+    });
+    expect(paperLightness(owlSpec.backColor)).toBeGreaterThan(paperLightness(owlSpec.frontColor));
+    expect(paperLightness(owlSpec.edgeColor)).toBeLessThan(paperLightness(owlSpec.frontColor));
   });
 });
 

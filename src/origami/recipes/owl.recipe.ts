@@ -3,10 +3,13 @@ import { applyHingeSnapshot, deformByHinge } from '../MeshSplitter.ts';
 import { PAPER_SIZE_M } from '../placement.ts';
 import type { FaceDefinition, FoldStep, HingeDefinition, MeshSnapshot, OrigamiRecipe, Vec2, Vec3 } from '../types.ts';
 
-export const OWL_PAPER_COLOR = '#4E9A4A';
-export const OWL_EYE_COLOR = '#F2C14E';
+export const OWL_PAPER_COLOR = '#C98245';
+export const OWL_BACK_COLOR = '#F7F2E9';
+export const OWL_EDGE_COLOR = '#98552F';
+export const OWL_EYE_COLOR = '#FFFFFF';
 export const OWL_BEAK_COLOR = '#E39A2D';
-export const OWL_PUPIL_COLOR = '#2A241C';
+export const OWL_PUPIL_COLOR = '#1C1A17';
+export const OWL_FEATHER_COLOR = '#98552F';
 
 const H = PAPER_SIZE_M / 2;
 const RAD = H * Math.SQRT2;
@@ -37,18 +40,35 @@ const BOTTOM_CREASE_Y = (-RAD + BOTTOM_LANDING_Y) / 2;
 /** Step 4 creases. Wide enough that the body is a compact rectangle, not a tall trapezoid. */
 const SIDE_X = RAD * 0.45;
 
-/** Step 5 lifts the bottom edge so the body stays short and the hem is a real layer. */
+/**
+ * Step 5 lifts the bottom flap along the horizontal crease while preserving
+ * a distinct flap whose lower left and right corners protrude visibly below
+ * the main body edge.
+ */
 const HEM_Y = BOTTOM_CREASE_Y + 0.016;
+const HEM_CORNER_INSET_X = 0.011;
+const HEM_PROTRUDE_Y = 0.008;
+
+/**
+ * Step 6 folds the small center triangular flap downward to shape the beak.
+ * The horizontal crease sits just below the eye line so the tip lands at the
+ * center beak position.
+ */
+export const OWL_BEAK_CREASE_Y = BOTTOM_LANDING_Y - 0.028;
+export const OWL_BEAK_HALF_X = BOTTOM_LANDING_Y - OWL_BEAK_CREASE_Y;
+const BEAK_L: Vec3 = [-OWL_BEAK_HALF_X, OWL_BEAK_CREASE_Y, 0];
+const BEAK_R: Vec3 = [OWL_BEAK_HALF_X, OWL_BEAK_CREASE_Y, 0];
 
 const DIAMOND_OUTLINE: Vec3[] = [L, T, RIGHT, B];
 
-export const OWL_EYE_X = SIDE_X * 0.42;
-export const OWL_EYE_Y = TOP_LANDING_Y - 0.02;
-export const OWL_BEAK: Vec3 = [0, OWL_EYE_Y - 0.026, 0];
-export const OWL_FEATHER_YS = [OWL_BEAK[1] - 0.022, OWL_BEAK[1] - 0.04] as const;
-export const OWL_FOOT_X = SIDE_X * 0.55;
-export const OWL_FOOT_Y = HEM_Y + 0.006;
-export const OWL_FEATURE_Z = 0.006;
+export const OWL_EYE_X = SIDE_X * 0.46;
+export const OWL_EYE_Y = TOP_LANDING_Y - 0.014;
+export const OWL_BEAK: Vec3 = [0, 2 * OWL_BEAK_CREASE_Y - BOTTOM_LANDING_Y, 0];
+export const OWL_FEATHER_YS = [HEM_Y + 0.032, HEM_Y + 0.016] as const;
+export const OWL_WING_FEATHER_X = SIDE_X * 0.56;
+export const OWL_FOOT_X = SIDE_X - HEM_CORNER_INSET_X;
+export const OWL_FOOT_Y = HEM_Y - HEM_PROTRUDE_Y;
+export const OWL_FEATURE_Z = 0.009;
 export const OWL_PINCH_AT: Vec3 = [0, (TOP_CREASE_Y + HEM_Y) / 2, 0.012];
 
 export const OWL_STEPS = [
@@ -57,6 +77,7 @@ export const OWL_STEPS = [
   'bottom-corner-up',
   'side-folds-inward',
   'body-shape',
+  'beak-fold',
   'owl-decoration',
 ] as const;
 
@@ -235,6 +256,71 @@ const HINGE_HEM: HingeDefinition = faceViewer(
   HEM_POINT,
 );
 
+/**
+ * Stacked flaps share crease vertices with the sheet under them. A later fold
+ * of only the flap has to move its own copy, or the shared vertex stays put
+ * and the flap stretches.
+ */
+function separateLayers(snapshot: MeshSnapshot, minLayer: number): MeshSnapshot {
+  const high = new Set<number>();
+  const low = new Set<number>();
+  for (const face of snapshot.faces) {
+    const bag = face.layer >= minLayer ? high : low;
+    for (const index of face.vertices) {
+      bag.add(index);
+    }
+  }
+  const vertices = snapshot.vertices.map((vertex) => [...vertex] as Vec3);
+  const remap = new Map<number, number>();
+  for (const index of high) {
+    if (!low.has(index)) {
+      continue;
+    }
+    const source = vertices[index];
+    if (!source) {
+      continue;
+    }
+    remap.set(index, vertices.length);
+    vertices.push([...source]);
+  }
+  if (remap.size === 0) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    vertices,
+    faces: snapshot.faces.map((face) =>
+      face.layer < minLayer
+        ? face
+        : { ...face, vertices: face.vertices.map((index) => remap.get(index) ?? index) },
+    ),
+  };
+}
+
+function addProtrudingHemCorners(snapshot: MeshSnapshot): MeshSnapshot {
+  const maxLayer = snapshot.faces.reduce((max, face) => Math.max(max, face.layer), 0);
+  const vertices = snapshot.vertices.map((vertex) => [...vertex] as Vec3);
+  const pushVert = (point: Vec3): number => {
+    vertices.push([...point] as Vec3);
+    return vertices.length - 1;
+  };
+  const leftOuter = pushVert([-SIDE_X, HEM_Y, 0]);
+  const leftTip = pushVert([-OWL_FOOT_X, OWL_FOOT_Y, 0]);
+  const leftInner = pushVert([-(OWL_FOOT_X - HEM_CORNER_INSET_X), HEM_Y, 0]);
+  const rightInner = pushVert([OWL_FOOT_X - HEM_CORNER_INSET_X, HEM_Y, 0]);
+  const rightTip = pushVert([OWL_FOOT_X, OWL_FOOT_Y, 0]);
+  const rightOuter = pushVert([SIDE_X, HEM_Y, 0]);
+  return {
+    ...snapshot,
+    vertices,
+    faces: [
+      ...snapshot.faces,
+      { id: 'bot-left:hem-foot', vertices: [leftOuter, leftTip, leftInner], layer: maxLayer, materialId: 'front' },
+      { id: 'bot-right:hem-foot', vertices: [rightInner, rightTip, rightOuter], layer: maxLayer, materialId: 'front' },
+    ],
+  };
+}
+
 const verticalFolded = {
   ...applyHingeSnapshot(diamond, HINGE_VERTICAL, 'valley', 180, L),
   outline: [T, RIGHT, B],
@@ -256,12 +342,13 @@ const topped = {
 const T_DOWN = landmarkAfterHinge(T, HINGE_TOP, 180, 'valley');
 topped.named = { ...REST, T: T_DOWN };
 
-const raised = {
-  ...foldStacked(topped, HINGE_BOTTOM, B),
-  outline: [SHOULDER_L, L, BOTTOM_LEFT, BOTTOM_RIGHT, RIGHT, SHOULDER_R],
-};
+const raisedRaw = foldStacked(topped, HINGE_BOTTOM, B);
 const B_UP = landmarkAfterHinge(B, HINGE_BOTTOM, 180, 'valley');
-raised.named = { ...topped.named, B: B_UP };
+const raised = {
+  ...separateLayers(raisedRaw, 2),
+  outline: [SHOULDER_L, L, BOTTOM_LEFT, BOTTOM_RIGHT, RIGHT, SHOULDER_R],
+  named: { ...topped.named, B: B_UP },
+};
 
 const leftIn = {
   ...foldStacked(raised, HINGE_LEFT, L),
@@ -279,15 +366,62 @@ sided.named = { ...leftIn.named, RIGHT: R_IN, HEM: HEM_POINT };
 
 const HEM_LEFT: Vec3 = [-SIDE_X, HEM_Y, 0];
 const HEM_RIGHT: Vec3 = [SIDE_X, HEM_Y, 0];
-const body: MeshSnapshot = {
-  ...applyHingeSnapshot(sided, HINGE_HEM, 'valley', 180, HEM_POINT),
-  outline: [SHOULDER_L, SIDE_TOP_L, HEM_LEFT, HEM_RIGHT, SIDE_TOP_R, SHOULDER_R],
-};
+const FOOT_TIP_L: Vec3 = [-OWL_FOOT_X, OWL_FOOT_Y, 0];
+const FOOT_TIP_R: Vec3 = [OWL_FOOT_X, OWL_FOOT_Y, 0];
+const BODY_OUTLINE: Vec3[] = [
+  SHOULDER_L,
+  SIDE_TOP_L,
+  HEM_LEFT,
+  FOOT_TIP_L,
+  FOOT_TIP_R,
+  HEM_RIGHT,
+  SIDE_TOP_R,
+  SHOULDER_R,
+];
+const bodyFolded = addProtrudingHemCorners(foldStacked(sided, HINGE_HEM, HEM_POINT));
 const HEM_UP = landmarkAfterHinge(HEM_POINT, HINGE_HEM, 180, 'valley');
-body.named = { ...sided.named, HEM: HEM_UP };
+const body: MeshSnapshot = {
+  ...bodyFolded,
+  outline: BODY_OUTLINE,
+  named: {
+    ...sided.named,
+    HEM: HEM_UP,
+    FOOT_L: FOOT_TIP_L,
+    FOOT_R: FOOT_TIP_R,
+  },
+};
 
-const owl = { ...body, outline: body.outline };
+const HINGE_BEAK: HingeDefinition = faceViewer(
+  {
+    id: 'owl-beak',
+    p0: BEAK_L,
+    p1: BEAK_R,
+    fixedFaces: ['top-left', 'top-right'],
+    movingFaces: ['bot-left', 'bot-right'],
+    minMovingLayer: 2,
+    maxMovingLayer: 2,
+    reachM: BOTTOM_LANDING_Y - OWL_BEAK_CREASE_Y + 0.008,
+  },
+  B_UP,
+);
 
+const BEAK_DOWN = landmarkAfterHinge(B_UP, HINGE_BEAK, 180, 'valley');
+const beakedMoved = deformByHinge(body, HINGE_BEAK, -180, B_UP);
+const beakedStacked = foldStacked(body, HINGE_BEAK, B_UP);
+const beaked: MeshSnapshot = {
+  ...beakedStacked,
+  faces: beakedStacked.faces.map((face) =>
+    beakedMoved.movingFaceIds.has(face.id) && face.vertices.length === 3
+      ? { ...face, vertices: [face.vertices[0]!, face.vertices[2]!, face.vertices[1]!] }
+      : face,
+  ),
+  outline: BODY_OUTLINE,
+};
+beaked.named = { ...body.named, B: BEAK_DOWN, BEAK: BEAK_DOWN };
+
+const owl: MeshSnapshot = { ...beaked, outline: BODY_OUTLINE };
+
+export const OWL_BEAK_TIP: Vec3 = BEAK_DOWN;
 export const OWL_LEFT_DIAGONAL: [Vec3, Vec3] = [SIDE_TOP_L, L_IN];
 export const OWL_RIGHT_DIAGONAL: [Vec3, Vec3] = [SIDE_TOP_R, R_IN];
 
@@ -308,6 +442,7 @@ export const OWL_RECIPE: OrigamiRecipe = {
     { id: 'owl-side-left', p0: HINGE_LEFT.p0, p1: HINGE_LEFT.p1, direction: 'valley' },
     { id: 'owl-side-right', p0: HINGE_RIGHT.p0, p1: HINGE_RIGHT.p1, direction: 'valley' },
     { id: 'owl-hem', p0: HINGE_HEM.p0, p1: HINGE_HEM.p1, direction: 'valley' },
+    { id: 'owl-beak', p0: HINGE_BEAK.p0, p1: HINGE_BEAK.p1, direction: 'valley' },
   ],
   snapshots: {
     diamond,
@@ -318,9 +453,10 @@ export const OWL_RECIPE: OrigamiRecipe = {
     'left-in': leftIn,
     sided,
     body,
+    beaked,
     owl,
   },
-  finalSilhouette: [SHOULDER_L, T_DOWN, SHOULDER_R, SIDE_TOP_R, R_IN, HEM_UP, L_IN, SIDE_TOP_L],
+  finalSilhouette: BODY_OUTLINE,
   silhouetteToleranceM: 0.045,
   steps: [
     step({
@@ -578,15 +714,42 @@ export const OWL_RECIPE: OrigamiRecipe = {
       arrowPathLocal: arc([0, BOTTOM_CREASE_Y + 0.004, 0.003], [0, HEM_UP[1] - 0.004, 0.003], 0.02),
       lockCreaseIds: ['owl-hem'],
       meshStrategy: 'hinge',
-      validationNotes: 'Step 5. A short hem makes the body compact and rectangular. The diagonal flaps stay on top.',
+      validationNotes: 'Step 5. A distinct bottom flap folds up while its lower left and right corners protrude below the body.',
+    }),
+    step({
+      id: 'owl-beak',
+      ordinal: 10,
+      progressStage: 6,
+      title: 'Fold the beak',
+      instruction: "Pinch the small center flap and fold it down to shape the owl's beak.",
+      fromSnapshotId: 'body',
+      toSnapshotId: 'beaked',
+      actionType: 'fold',
+      hinge: HINGE_BEAK,
+      direction: 'valley',
+      movingRegion: {
+        id: 'moving-beak',
+        faceIds: ['bot-left', 'bot-right'],
+        polygonUV: uvPoly([BEAK_L, B_UP, BEAK_R]),
+        allowedHands: 'either',
+      },
+      startAngleDeg: 0,
+      targetAngleDeg: 180,
+      minAngleDeg: 0,
+      maxAngleDeg: 180,
+      targetLandmarks: [{ sourceVertexId: 'B', target: BEAK_DOWN }],
+      arrowPathLocal: arc([0, B_UP[1] - 0.006, 0.008], [0, BEAK_DOWN[1] + 0.006, 0.008], 0.018),
+      lockCreaseIds: ['owl-beak'],
+      meshStrategy: 'hinge',
+      validationNotes: 'Step 6. The center triangular flap folds downward to form the beak.',
     }),
     step({
       id: 'owl-decorate',
-      ordinal: 10,
-      progressStage: 6,
+      ordinal: 11,
+      progressStage: 7,
       title: 'Bring your owl to life',
       instruction: 'Pinch to bring your owl to life!',
-      fromSnapshotId: 'body',
+      fromSnapshotId: 'beaked',
       toSnapshotId: 'owl',
       actionType: 'crease-press',
       creasePressHoldMs: 650,
@@ -611,7 +774,7 @@ export const OWL_RECIPE: OrigamiRecipe = {
       targetLandmarks: [],
       arrowPathLocal: arc([-0.018, OWL_PINCH_AT[1], 0.01], [0.018, OWL_PINCH_AT[1], 0.01], 0.012),
       meshStrategy: 'crease-press',
-      validationNotes: 'Step 6. One pinch reveals the eyes, beak, and feather marks, then the success state.',
+      validationNotes: 'Step 7. One pinch reveals the eyes and curved wing feather markings, then the success state.',
     }),
   ],
   finalCreatureAsset: 'folded-paper-owl',

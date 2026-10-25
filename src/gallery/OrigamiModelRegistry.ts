@@ -3,12 +3,12 @@ import {
   BufferGeometry,
   CircleGeometry,
   Color,
-  ConeGeometry,
   DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  RingGeometry,
   SphereGeometry,
   Vector3,
 } from 'three';
@@ -16,7 +16,18 @@ import { FOLD_PAPER_COLOR } from '../origami/FoldPaper.ts';
 import { createPaperMaterials, origamiPaperMaterial } from '../origami/OrigamiPaperMaterial.ts';
 import { PAPER_DEPTH, buildPaperMesh, type PaperMeshBuffers } from '../origami/paperDepth.ts';
 import { BAT_PAPER_COLOR, BAT_RECIPE } from '../origami/recipes/bat.recipe.ts';
-import { OWL_BEAK_COLOR, OWL_EYE_COLOR, OWL_PAPER_COLOR, OWL_PUPIL_COLOR } from '../origami/recipes/owl.recipe.ts';
+import {
+  OWL_EYE_COLOR,
+  OWL_EYE_X,
+  OWL_EYE_Y,
+  OWL_FEATHER_COLOR,
+  OWL_FEATHER_YS,
+  OWL_FEATURE_Z,
+  OWL_PAPER_COLOR,
+  OWL_PUPIL_COLOR,
+  OWL_RECIPE,
+  OWL_WING_FEATHER_X,
+} from '../origami/recipes/owl.recipe.ts';
 import { TURTLE_PAPER_COLOR, TURTLE_RECIPE } from '../origami/recipes/turtle.recipe.ts';
 import { createTurtleEye, createTurtleShellPattern } from '../animation/turtleAppearance.ts';
 import { FOX_PAPER_COLOR, FOX_RECIPE } from '../origami/recipes/fox.recipe.ts';
@@ -452,41 +463,38 @@ function ladybugModel(): Group {
 }
 
 function owlModel(): Group {
-  const group = new Group();
-  group.add(
-    meshFromTris(
-      'owl-body',
-      [
-        ...triangle(-0.038, -0.01, 0.038, -0.01, 0, 0.046),
-        ...triangle(-0.042, 0.004, 0.042, 0.004, 0, -0.048),
-        ...triangle(-0.046, 0.01, -0.008, -0.02, -0.02, -0.036),
-        ...triangle(0.046, 0.01, 0.02, -0.036, 0.008, -0.02),
-      ],
-      OWL_PAPER_COLOR,
-    ),
-  );
+  const snapshot = OWL_RECIPE.snapshots.owl;
+  const group = snapshotModel('owl', snapshot, OWL_PAPER_COLOR);
+  if (!snapshot) {
+    return group;
+  }
+  const decor = new Group();
+  decor.name = 'owl-preview-decor';
   const eyeMat = paperMat(OWL_EYE_COLOR);
   const pupilMat = paperMat(OWL_PUPIL_COLOR);
-  const beakMat = paperMat(OWL_BEAK_COLOR);
-  const leftEye = new Mesh(new SphereGeometry(0.009, 12, 10), eyeMat);
-  const rightEye = new Mesh(new SphereGeometry(0.009, 12, 10), eyeMat);
-  const leftPupil = new Mesh(new SphereGeometry(0.0035, 8, 8), pupilMat);
-  const rightPupil = new Mesh(new SphereGeometry(0.0035, 8, 8), pupilMat);
-  leftEye.position.set(-0.012, 0.02, 0.012);
-  rightEye.position.set(0.012, 0.02, 0.012);
-  leftPupil.position.set(-0.012, 0.02, 0.02);
-  rightPupil.position.set(0.012, 0.02, 0.02);
-  const beak = new Mesh(new ConeGeometry(0.007, 0.014, 4), beakMat);
-  beak.rotation.x = Math.PI;
-  beak.position.set(0, 0.004, 0.014);
-  const leftFoot = new Mesh(new SphereGeometry(0.006, 8, 8), eyeMat);
-  const rightFoot = new Mesh(new SphereGeometry(0.006, 8, 8), eyeMat);
-  leftFoot.scale.set(1.2, 0.55, 0.7);
-  rightFoot.scale.set(1.2, 0.55, 0.7);
-  leftFoot.position.set(-0.012, -0.046, 0.01);
-  rightFoot.position.set(0.012, -0.046, 0.01);
-  group.add(leftEye, rightEye, leftPupil, rightPupil, beak, leftFoot, rightFoot);
-  return fit(group, 0.082);
+  const featherMat = paperMat(OWL_FEATHER_COLOR);
+  for (const x of [-OWL_EYE_X, OWL_EYE_X]) {
+    const eye = new Mesh(new CircleGeometry(0.014, 18), eyeMat);
+    const pupil = new Mesh(new CircleGeometry(0.0065, 14), pupilMat);
+    eye.position.set(x, OWL_EYE_Y, OWL_FEATURE_Z);
+    pupil.position.set(x, OWL_EYE_Y, OWL_FEATURE_Z + 0.001);
+    decor.add(eye, pupil);
+  }
+  OWL_FEATHER_YS.forEach((y, index) => {
+    const xOffset = OWL_WING_FEATHER_X - index * 0.003;
+    for (const sign of [-1, 1] as const) {
+      const arc = new Mesh(
+        new RingGeometry(0.0065, 0.0088, 18, 1, Math.PI * 1.15, Math.PI * 0.7),
+        featherMat,
+      );
+      arc.position.set(sign * xOffset, y, OWL_FEATURE_Z + 0.001);
+      arc.rotation.z = sign * 0.18;
+      decor.add(arc);
+    }
+  });
+  frameDecor(snapshot, decor);
+  group.add(decor);
+  return group;
 }
 
 const BUILDERS: Record<AnimalId, (color: string) => Group> = {

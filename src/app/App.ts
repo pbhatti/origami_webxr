@@ -1144,7 +1144,7 @@ export class App {
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
         }
-      } else if (stage <= 7 && this.stage.activeAnimal === 'owl' && stage <= 5) {
+      } else if (stage <= 7 && this.stage.activeAnimal === 'owl') {
         this.stage.prepareOwlStep(stage);
         if (this.machine.state !== 'INSTRUCTION') {
           this.machine.force('INSTRUCTION');
