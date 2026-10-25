@@ -2,8 +2,7 @@ import { landmarkAfterHinge } from '../CreaseSolver.ts';
 import { sideOfCrease } from '../creaseMath.ts';
 import { applyHingeSnapshot, deformByHinge } from '../MeshSplitter.ts';
 import { PAPER_SIZE_M } from '../placement.ts';
-import { deformRollSnapshot } from '../rollFold.ts';
-import type { FaceDefinition, FoldStep, HingeDefinition, MeshSnapshot, OrigamiRecipe, RollSegment, Vec2, Vec3 } from '../types.ts';
+import type { FaceDefinition, FoldStep, HingeDefinition, MeshSnapshot, OrigamiRecipe, Vec2, Vec3 } from '../types.ts';
 
 export const DINOSAUR_PAPER_COLOR = '#FFC547';
 export const DINOSAUR_BACK_COLOR = '#FFE29A';
@@ -31,7 +30,6 @@ export const DINOSAUR_STEPS = [
   'center-crease',
   'first-section',
   'section-again',
-  'open-fold',
   'head',
   'foot',
   'dinosaur-decoration',
@@ -359,30 +357,6 @@ const narrowFold = foldStacked(section, HINGE_NARROW, [SECTION_X, -H / 2, 0]);
 const narrowNamed = reflectNamed(sectionNamed, HINGE_NARROW, [SECTION_X, -H / 2, 0]);
 const narrow: MeshSnapshot = withPose(narrowFold.snapshot, narrowNamed);
 
-const OPEN_SEGMENTS: RollSegment[] = [
-  {
-    hinge: { ...HINGE_NARROW, id: 'dino-open-narrow', minMovingLayer: narrowFold.minLayer },
-    tip: [NARROW_X * 0.45, -H * 0.35, 0],
-  },
-  {
-    hinge: { ...HINGE_SECTION, id: 'dino-open-section', minMovingLayer: sectionFold.minLayer },
-    tip: [SECTION_X * 0.45, -H * 0.25, 0],
-  },
-];
-
-const openedRaw = deformRollSnapshot(narrow, OPEN_SEGMENTS, 1, 'open');
-const openedNamed = {
-  ...narrowNamed,
-  TR,
-  EDGE,
-  CREASE,
-  TL: triangleNamed.TL ?? BL,
-  BR,
-  BL,
-  O,
-};
-const opened: MeshSnapshot = compressLayers(withPose(openedRaw, openedNamed, [BL, BR, TR]));
-
 function pointAlong(from: Vec3, toward: Vec3, distance: number): Vec3 {
   const dx = toward[0] - from[0];
   const dy = toward[1] - from[1];
@@ -391,15 +365,16 @@ function pointAlong(from: Vec3, toward: Vec3, distance: number): Vec3 {
 }
 
 /**
- * The head is the opened triangle's existing top corner. The crease meets the
- * vertical neck a short way down, and the hypotenuse a little farther along,
- * so reflecting the tip swings it down and to the right.
+ * The head folds directly from the top of the Step 4 vertical neck strip
+ * (x in [0, NARROW_X]). The crease connects the top of the right neck edge
+ * (x = NARROW_X, y = H - NARROW_X) to the left neck edge (x = 0), swinging
+ * the top apex outward and downward to the right into a pointed snout.
  */
-const FLAP_TIP: Vec3 = openedNamed.TR ?? TR;
-const HEAD_NECK_M = 0.022;
-const HEAD_BACK_M = 0.046 * Math.SQRT2;
-const HEAD_NECK: Vec3 = pointAlong(FLAP_TIP, openedNamed.BR ?? BR, HEAD_NECK_M);
-const HEAD_BACK: Vec3 = pointAlong(FLAP_TIP, openedNamed.BL ?? BL, HEAD_BACK_M);
+const FLAP_TIP: Vec3 = narrowNamed.TR ?? [0, H, 0];
+const HEAD_NECK_M = NARROW_X * Math.SQRT2;
+const HEAD_BACK_M = 0.046;
+const HEAD_NECK: Vec3 = pointAlong(FLAP_TIP, [H, 0, 0], HEAD_NECK_M);
+const HEAD_BACK: Vec3 = pointAlong(FLAP_TIP, O, HEAD_BACK_M);
 const HINGE_HEAD: HingeDefinition = faceViewer(
   {
     id: 'dino-head',
@@ -414,12 +389,11 @@ const HINGE_HEAD: HingeDefinition = faceViewer(
 );
 const HEAD_LANDING = landmarkAfterHinge(FLAP_TIP, HINGE_HEAD, 180, 'valley');
 const HEAD_DEST: Vec3 = [HEAD_LANDING[0], HEAD_LANDING[1], 0];
-const headedNamed = reflectNamed(openedNamed, HINGE_HEAD, FLAP_TIP);
+const headedNamed = reflectNamed(narrowNamed, HINGE_HEAD, FLAP_TIP);
 headedNamed.TR = HEAD_DEST;
 headedNamed.BL = BL;
-headedNamed.BR = BR;
 headedNamed.O = O;
-const headed: MeshSnapshot = compressLayers(withPose(foldStacked(opened, HINGE_HEAD, FLAP_TIP).snapshot, headedNamed));
+const headed: MeshSnapshot = compressLayers(withPose(foldStacked(narrow, HINGE_HEAD, FLAP_TIP).snapshot, headedNamed));
 
 const TAIL_INSET = 0.02;
 const bisectorLen = Math.hypot(Math.cos(Math.PI / 8), Math.sin(Math.PI / 8));
@@ -474,8 +448,8 @@ export const DINOSAUR_TAIL_TIP: Vec3 = DINOSAUR_FOOT_TIP;
 export const DINOSAUR_APEX: Vec3 = FLAP_TIP;
 export const DINOSAUR_FEATURE_Z = 0.012;
 export const DINOSAUR_EYE: Vec3 = [
-  ((HINGE_HEAD.p0[0] + HINGE_HEAD.p1[0]) / 2) * 0.15 + DINOSAUR_HEAD_TIP[0] * 0.85,
-  ((HINGE_HEAD.p0[1] + HINGE_HEAD.p1[1]) / 2) * 0.15 + DINOSAUR_HEAD_TIP[1] * 0.85,
+  ((HINGE_HEAD.p0[0] + HINGE_HEAD.p1[0]) / 2) * 0.45 + DINOSAUR_HEAD_TIP[0] * 0.55,
+  ((HINGE_HEAD.p0[1] + HINGE_HEAD.p1[1]) / 2) * 0.45 + DINOSAUR_HEAD_TIP[1] * 0.55,
   DINOSAUR_FEATURE_Z,
 ];
 export const DINOSAUR_PINCH_AT: Vec3 = [-0.028, -0.048, 0.012];
@@ -483,7 +457,6 @@ export const DINOSAUR_NAMED = NAMED0;
 
 const CENTER_LINE: [Vec3, Vec3] = [[CENTER_X, -H, 0], [CENTER_X, 0, 0]];
 const SECTION_LINE: [Vec3, Vec3] = [[SECTION_X, -H, 0], [SECTION_X, SECTION_X, 0]];
-const NARROW_LINE: [Vec3, Vec3] = [[NARROW_X, -H, 0], [NARROW_X, NARROW_X, 0]];
 
 export interface DinosaurSpineMark {
   points: Vec3[];
@@ -530,7 +503,6 @@ export const DINOSAUR_RECIPE: OrigamiRecipe = {
     'center-folded': centerFolded,
     section,
     narrow,
-    opened,
     headed,
     footed,
     dinosaur,
@@ -678,41 +650,12 @@ export const DINOSAUR_RECIPE: OrigamiRecipe = {
       validationNotes: 'Step 4. The edge at x=S/2 folds to x=0. The strip sits between x=0 and x=S/4.',
     }),
     step({
-      id: 'dino-open-fold',
+      id: 'dino-head',
       ordinal: 6,
       progressStage: 5,
-      title: 'Open the fold',
-      instruction: 'Open the folded section.',
-      fromSnapshotId: 'narrow',
-      toSnapshotId: 'opened',
-      actionType: 'unfold',
-      hinge: OPEN_SEGMENTS[0]!.hinge,
-      direction: 'valley',
-      rollSegments: OPEN_SEGMENTS,
-      rollDirection: 'open',
-      movingRegion: {
-        id: 'moving-open-flap',
-        faceIds: ['east', 'north', 'south'],
-        polygonUV: uvPoly([[0, -H, 0], [NARROW_X, -H, 0], [NARROW_X, H - NARROW_X, 0], [0, H, 0]]),
-        allowedHands: 'either',
-      },
-      startAngleDeg: 0,
-      targetAngleDeg: 180,
-      minAngleDeg: 0,
-      maxAngleDeg: 180,
-      targetLandmarks: [{ sourceVertexId: 'TR', target: TR }],
-      arrowPathLocal: arc([NARROW_X * 0.4, H * 0.15, 0.004], [H * 0.78, H * 0.05, 0.004], 0.045),
-      extraCreaseLines: [CENTER_LINE, SECTION_LINE, NARROW_LINE],
-      meshStrategy: 'roll',
-      validationNotes: 'Step 5. One pinch reverses the step 4 flap, then the step 3 flap. Creases stay as guides.',
-    }),
-    step({
-      id: 'dino-head',
-      ordinal: 7,
-      progressStage: 6,
       title: "Shape the dinosaur's head",
       instruction: "Fold the top tip outward to create the dinosaur's head.",
-      fromSnapshotId: 'opened',
+      fromSnapshotId: 'narrow',
       toSnapshotId: 'headed',
       actionType: 'fold',
       hinge: HINGE_HEAD,
@@ -729,17 +672,17 @@ export const DINOSAUR_RECIPE: OrigamiRecipe = {
       maxAngleDeg: 180,
       targetLandmarks: [{ sourceVertexId: 'TR', target: headedNamed.TR ?? HEAD_DEST }],
       arrowPathLocal: arc(
-        [FLAP_TIP[0] - 0.004, FLAP_TIP[1] - 0.006, 0.008],
+        [FLAP_TIP[0] + 0.004, FLAP_TIP[1] - 0.006, 0.008],
         [HEAD_DEST[0], HEAD_DEST[1], 0.008],
         0.024,
       ),
       meshStrategy: 'hinge',
-      validationNotes: 'Step 6. The opened top flap folds down and to the right. The neck and body stay put.',
+      validationNotes: 'Step 5. The top tip of the vertical neck folds outward and downward to the right.',
     }),
     step({
       id: 'dino-foot',
-      ordinal: 8,
-      progressStage: 7,
+      ordinal: 7,
+      progressStage: 6,
       title: 'Shape the foot',
       instruction: "Fold the bottom corner to create the dinosaur's foot.",
       fromSnapshotId: 'headed',
@@ -760,12 +703,12 @@ export const DINOSAUR_RECIPE: OrigamiRecipe = {
       targetLandmarks: [{ sourceVertexId: 'BL', target: footNamed.BL ?? FOOT_LANDING }],
       arrowPathLocal: arc([BL[0] + 0.008, BL[1] + 0.006, 0.004], [FOOT_LANDING[0], FOOT_LANDING[1], 0.004], 0.018),
       meshStrategy: 'hinge',
-      validationNotes: 'Step 7. A short crease near the lower-left corner turns that tip into the foot. The head and neck stay put.',
+      validationNotes: 'Step 6. A short crease near the lower-left corner turns that tip into the foot. The head and neck stay put.',
     }),
     step({
       id: 'dino-decorate',
-      ordinal: 9,
-      progressStage: 8,
+      ordinal: 8,
+      progressStage: 7,
       title: 'Bring your dinosaur to life',
       instruction: 'Pinch to bring your dinosaur to life!',
       fromSnapshotId: 'footed',
@@ -777,7 +720,7 @@ export const DINOSAUR_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-dinosaur-body',
         faceIds: ['north', 'east', 'south', 'west'],
-        polygonUV: uvPoly([BL, BR, TR, O]),
+        polygonUV: uvPoly([BL, [NARROW_X, -H, 0], [NARROW_X, H - NARROW_X, 0], O]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -791,13 +734,8 @@ export const DINOSAUR_RECIPE: OrigamiRecipe = {
         0.012,
       ),
       meshStrategy: 'crease-press',
-      validationNotes: 'Step 8. One pinch reveals the eye and the orange back plates.',
+      validationNotes: 'Step 7. One pinch reveals the eye and the orange back plates.',
     }),
   ],
   finalCreatureAsset: 'folded-paper-dinosaur',
-};
-
-export const DINOSAUR_OPEN_MIN_LAYER = {
-  narrow: narrowFold.minLayer,
-  section: sectionFold.minLayer,
 };
