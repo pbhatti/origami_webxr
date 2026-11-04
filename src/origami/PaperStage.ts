@@ -1003,7 +1003,7 @@ export class PaperStage {
   }
 
   preparePenguinStep(stage: number): number {
-    const target = Math.min(9, Math.max(1, Math.round(stage)));
+    const target = Math.min(8, Math.max(1, Math.round(stage)));
     this.penguinPinch.reset();
     this.owlOpenStepId = null;
     this.penguinCreature.stop();
