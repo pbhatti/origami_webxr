@@ -17,8 +17,8 @@ const R = PENGUIN_R;
 
 /**
  * Crease positions as fractions of R. Step 2 is the spec's below-center fold.
- * Later fractions were chosen so each result matches the written silhouette:
- * there was no penguin diagram in the attachment folder.
+ * Later fractions follow the penguin diagram: the small center triangle stays
+ * folded, and the next pinch folds the sides of that white triangle inward.
  */
 export const PENGUIN_BOTTOM_CREASE_FRAC = -0.22;
 export const PENGUIN_LOWER_CREASE_FRAC = 0.32;
@@ -649,14 +649,14 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       title: STAGE_TITLE[3],
       instruction: STAGE_INSTRUCTION[3],
       fromSnapshotId: 'lowered',
-      toSnapshotId: 'tipped',
+      toSnapshotId: 'turned',
       actionType: 'fold',
       hinge: HINGE_TIP,
       direction: 'valley',
       movingRegion: {
         id: 'moving-center-tip',
         faceIds: ['bot-left', 'bot-right'],
-        polygonUV: uvPoly([P4L, [0, Y4 + 0.03, 0], P4R]),
+        polygonUV: uvPoly([P4L, [0, TIP3_Y, 0], P4R]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -664,40 +664,15 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       minAngleDeg: 0,
       maxAngleDeg: 180,
       targetLandmarks: [{ sourceVertexId: 'TIP', target: tipLanding }],
-      arrowPathLocal: arc([-0.012, Y4 + 0.02, 0.008], [0.012, Y4 - 0.02, 0.008], 0.018),
+      arrowPathLocal: arc([0, TIP3_Y, 0.008], [0, tipLanding[1], 0.008], 0.016),
       lockCreaseIds: ['penguin-center-tip'],
       meshStrategy: 'hinge',
-      validationNotes: 'Step 4. A short central crease on the nested flap. The broad upper triangle does not move.',
-    }),
-    step({
-      id: 'penguin-turn-open',
-      ordinal: 8,
-      progressStage: 5,
-      title: STAGE_TITLE[4],
-      instruction: STAGE_INSTRUCTION[4],
-      fromSnapshotId: 'tipped',
-      toSnapshotId: 'turned',
-      actionType: 'unfold',
-      hinge: hingeOf('penguin-turn-open', [0, -R, 0], [0, R, 0], L),
-      direction: 'valley',
-      movingRegion: {
-        id: 'moving-turn',
-        faceIds: ['top-left', 'top-right', 'bot-left', 'bot-right'],
-        polygonUV: uvPoly([L, T, RIGHT, B]),
-        allowedHands: 'either',
-      },
-      startAngleDeg: 0,
-      targetAngleDeg: 180,
-      minAngleDeg: 0,
-      maxAngleDeg: 180,
-      targetLandmarks: [],
-      arrowPathLocal: arc([-0.04, 0.02, 0.01], [0.04, 0.02, 0.01], 0.03),
-      meshStrategy: 'turn',
-      validationNotes: 'Step 5 starts by turning the folded sheet over around its vertical axis. White faces the viewer. This is not a color swap.',
+      validationNotes:
+        'Step 4. Only the small center triangle folds on its base hinge. Completing it lands on the white triangle (reference step 5). The tip stays folded; nothing reopens it.',
     }),
     step({
       id: 'penguin-side-left',
-      ordinal: 9,
+      ordinal: 8,
       progressStage: 5,
       title: STAGE_TITLE[4],
       instruction: STAGE_INSTRUCTION[4],
@@ -721,11 +696,11 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       lockCreaseIds: ['penguin-side-left'],
       meshStrategy: 'hinge',
       parallelGroup: 'penguin-sides',
-      validationNotes: 'Step 5 left. The sheet is already turned. One side does not finish the step.',
+      validationNotes: 'Step 5 left. Starts from the folded white triangle. One side does not finish the step.',
     }),
     step({
       id: 'penguin-side-right',
-      ordinal: 10,
+      ordinal: 9,
       progressStage: 5,
       title: STAGE_TITLE[4],
       instruction: STAGE_INSTRUCTION[4],
@@ -753,7 +728,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
     }),
     step({
       id: 'penguin-flap-left',
-      ordinal: 11,
+      ordinal: 10,
       progressStage: 6,
       title: STAGE_TITLE[5],
       instruction: STAGE_INSTRUCTION[5],
@@ -781,7 +756,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
     }),
     step({
       id: 'penguin-flap-right',
-      ordinal: 12,
+      ordinal: 11,
       progressStage: 6,
       title: STAGE_TITLE[5],
       instruction: STAGE_INSTRUCTION[5],
@@ -809,7 +784,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
     }),
     step({
       id: 'penguin-wing-left',
-      ordinal: 13,
+      ordinal: 12,
       progressStage: 7,
       title: STAGE_TITLE[6],
       instruction: STAGE_INSTRUCTION[6],
@@ -837,7 +812,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
     }),
     step({
       id: 'penguin-wing-right',
-      ordinal: 14,
+      ordinal: 13,
       progressStage: 7,
       title: STAGE_TITLE[6],
       instruction: STAGE_INSTRUCTION[6],
@@ -865,7 +840,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
     }),
     step({
       id: 'penguin-beak',
-      ordinal: 15,
+      ordinal: 14,
       progressStage: 8,
       title: STAGE_TITLE[7],
       instruction: STAGE_INSTRUCTION[7],
@@ -892,7 +867,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
     }),
     step({
       id: 'penguin-decorate',
-      ordinal: 16,
+      ordinal: 15,
       progressStage: 9,
       title: STAGE_TITLE[8],
       instruction: STAGE_INSTRUCTION[8],
