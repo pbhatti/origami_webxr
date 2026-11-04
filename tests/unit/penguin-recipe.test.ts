@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PenguinCreature } from '../../src/animation/PenguinCreature.ts';
+import { deformByHinge } from '../../src/origami/MeshSplitter.ts';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
 import { origamiPaperMaterial } from '../../src/origami/OrigamiPaperMaterial.ts';
 import { progressFromRecipe } from '../../src/origami/progressModel.ts';
@@ -169,6 +170,58 @@ describe('origami penguin recipe', () => {
     expect(engine.currentStep?.id).not.toBe('penguin-flap-left');
     expect(engine.isStepCommitted('penguin-side-left')).toBe(true);
     expect(engine.isStepCommitted('penguin-side-right')).toBe(false);
+  });
+
+  it('opens both wings past the body and keeps them blue for the beak', () => {
+    const ready = PENGUIN_RECIPE.snapshots['wing-ready']!;
+    const winged = PENGUIN_RECIPE.snapshots.winged!;
+    const beaked = PENGUIN_RECIPE.snapshots.beaked!;
+    const bodyEdge = 0.55 * PENGUIN_R;
+    const left = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-wing-left');
+    const right = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-wing-right');
+    expect(left?.fromSnapshotId).toBe('wing-ready');
+    expect(right?.fromSnapshotId).toBe('wing-ready');
+    expect(left?.progressStage).toBe(6);
+    expect(right?.parallelGroup).toBe('penguin-wings');
+
+    for (const [step, hint, sign] of [
+      [left, ready.named?.WL, -1],
+      [right, ready.named?.WR, 1],
+    ] as const) {
+      expect(hint).toBeTruthy();
+      const moved = deformByHinge(ready, step!.hinge, -180, hint);
+      expect(moved.movingVertexIds.size).toBeGreaterThan(0);
+      for (const index of moved.movingVertexIds) {
+        const landed = moved.snapshot.vertices[index];
+        expect(landed).toBeTruthy();
+        expect(Math.abs(landed![0])).toBeGreaterThan(bodyEdge);
+        expect(Math.sign(landed![0])).toBe(sign);
+      }
+    }
+
+    const outline = winged.outline ?? [];
+    expect(Math.min(...outline.map((point) => point[0]))).toBeLessThan(-bodyEdge - 0.01);
+    expect(Math.max(...outline.map((point) => point[0]))).toBeGreaterThan(bodyEdge + 0.01);
+    expect(named(winged, 'T')[1]).toBeCloseTo(PENGUIN_R, 3);
+    expect(topFaceAt(winged, -0.09, 0.02)?.tone).toBe('front');
+    expect(topFaceAt(winged, 0.09, 0.02)?.tone).toBe('front');
+    expect(topFaceAt(winged, 0, 0.08)?.tone).toBe('back');
+    expect(topFaceAt(beaked, -0.09, 0.02)?.tone).toBe('front');
+    expect(topFaceAt(beaked, 0.09, 0.02)?.tone).toBe('front');
+    expect(named(beaked, 'T')[1]).toBeLessThan(named(winged, 'T')[1] - 0.03);
+
+    const engine = new OrigamiEngine(PENGUIN_RECIPE, PENGUIN_NAMED);
+    for (let guard = 0; guard < 16 && engine.currentStep?.id !== 'penguin-beak'; guard += 1) {
+      commitCurrent(engine);
+    }
+    expect(engine.currentStep?.id).toBe('penguin-beak');
+    expect(engine.currentStep?.fromSnapshotId).toBe('winged');
+    expect(engine.isStepCommitted('penguin-wing-left')).toBe(true);
+    expect(engine.isStepCommitted('penguin-wing-right')).toBe(true);
+    engine.reset(PENGUIN_RECIPE, PENGUIN_NAMED);
+    expect(engine.currentStep?.id).toBe('penguin-vertical-fold');
+    expect(engine.isStepCommitted('penguin-wing-left')).toBe(false);
+    expect(engine.isStepCommitted('penguin-wing-right')).toBe(false);
   });
 
   it('shapes the beak from the small top flap and shows eyes only at the last step', () => {
