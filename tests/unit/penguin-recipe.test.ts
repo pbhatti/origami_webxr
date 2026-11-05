@@ -99,7 +99,7 @@ describe('origami penguin recipe', () => {
       'Shape the lower body',
       'Flip the paper',
       'Fold both sides inward',
-      'Open the side flaps',
+      'Open half the flaps',
       'Shape the wings',
       'Shape the beak',
       'Bring it to life',
@@ -260,9 +260,14 @@ describe('origami penguin recipe', () => {
     expect(leftFlap?.fromSnapshotId).toBe('flap-ready');
     expect(rightFlap?.fromSnapshotId).toBe('flap-ready');
     expect(leftFlap?.parallelGroup).toBe('penguin-flaps');
-    expect(leftFlap?.hinge.p0[0]).toBeLessThan(-bodyEdge + 0.001);
-    expect(rightFlap?.hinge.p0[0]).toBeGreaterThan(bodyEdge - 0.001);
-    expect(leftFlap?.hinge.p0[0]).not.toBe(rightFlap?.hinge.p0[0]);
+    expect(leftFlap?.instruction).toBe('Open half of each flap along the dotted crease.');
+    const leftCrease = Math.abs(leftFlap?.hinge.p0[0] ?? 0);
+    const rightCrease = Math.abs(rightFlap?.hinge.p0[0] ?? 0);
+    expect(leftCrease).toBeGreaterThan(bodyEdge * 0.4);
+    expect(leftCrease).toBeLessThan(bodyEdge - 0.02);
+    expect(rightCrease).toBeCloseTo(leftCrease, 3);
+    expect(leftFlap?.creaseLineLocal[0][0]).toBeCloseTo(leftFlap?.hinge.p0[0] ?? 0, 4);
+    expect(leftFlap?.creaseLineLocal[1][0]).toBeCloseTo(leftFlap?.hinge.p1[0] ?? 0, 4);
     for (const [step, hint, sign] of [
       [leftFlap, flaps.named?.RIGHT, -1],
       [rightFlap, flaps.named?.L, 1],
@@ -271,29 +276,33 @@ describe('origami penguin recipe', () => {
       expect(moved.movingVertexIds.size).toBeGreaterThan(0);
       const originals = [...new Set([...moved.movingFaceIds].map((id) => id.split(':')[0] ?? id))].sort();
       expect(originals).toEqual(sign < 0 ? ['bot-right', 'top-right'] : ['bot-left', 'top-left']);
-      for (const index of moved.movingVertexIds) {
-        const landed = moved.snapshot.vertices[index];
-        expect(Math.abs(landed![0])).toBeGreaterThan(bodyEdge);
-        expect(Math.sign(landed![0])).toBe(sign);
+      const crease = Math.abs(step!.hinge.p0[0]);
+      const landed = [...moved.movingVertexIds].map((index) => moved.snapshot.vertices[index]!);
+      expect(Math.max(...landed.map((point) => Math.abs(point[0])))).toBeGreaterThan(crease + 0.02);
+      for (const point of landed) {
+        expect(Math.abs(point[0])).toBeGreaterThan(crease - 0.001);
+        expect(Math.abs(point[0])).toBeLessThanOrEqual(bodyEdge + 0.004);
+        expect(Math.sign(point[0])).toBe(sign);
       }
     }
-    expect(sampleHitsRegion([-0.07, 0.02, 0.01], leftFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
-    expect(sampleHitsRegion([0.07, 0.02, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
-    expect(sampleHitsRegion([-0.07, 0.02, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(false);
-    expect(topFaceAt(opened, -0.1, 0)?.tone).toBe('front');
-    expect(topFaceAt(opened, 0.1, 0)?.tone).toBe('front');
+    expect(sampleHitsRegion([-0.03, 0.02, 0.01], leftFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([0.03, 0.02, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([-0.03, 0.02, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(false);
+    expect(sampleHitsRegion([-0.07, 0.02, 0.01], leftFlap!.movingRegion, PAPER_SIZE_M)).toBe(false);
+    expect(topFaceAt(opened, -0.06, 0)?.tone).toBe('front');
+    expect(topFaceAt(opened, 0.06, 0)?.tone).toBe('front');
     const openedOutline = opened.outline ?? [];
-    expect(Math.min(...openedOutline.map((point) => point[0]))).toBeLessThan(-bodyEdge - 0.04);
-    expect(Math.max(...openedOutline.map((point) => point[0]))).toBeGreaterThan(bodyEdge + 0.04);
+    expect(Math.min(...openedOutline.map((point) => point[0]))).toBeGreaterThan(-bodyEdge - 0.01);
+    expect(Math.max(...openedOutline.map((point) => point[0]))).toBeLessThan(bodyEdge + 0.01);
 
     expect(Math.min(...outline.map((point) => point[0]))).toBeLessThan(-bodyEdge - 0.01);
     expect(Math.max(...outline.map((point) => point[0]))).toBeGreaterThan(bodyEdge + 0.01);
     expect(named(winged, 'T')[1]).toBeCloseTo(PENGUIN_R, 3);
-    expect(topFaceAt(winged, -0.09, 0.02)?.tone).toBe('front');
-    expect(topFaceAt(winged, 0.09, 0.02)?.tone).toBe('front');
+    expect(topFaceAt(winged, -0.1, 0)?.tone).toBe('front');
+    expect(topFaceAt(winged, 0.1, 0)?.tone).toBe('front');
     expect(topFaceAt(winged, 0, 0.08)?.tone).toBe('back');
-    expect(topFaceAt(beaked, -0.09, 0.02)?.tone).toBe('front');
-    expect(topFaceAt(beaked, 0.09, 0.02)?.tone).toBe('front');
+    expect(topFaceAt(beaked, -0.1, 0)?.tone).toBe('front');
+    expect(topFaceAt(beaked, 0.1, 0)?.tone).toBe('front');
     expect(named(beaked, 'T')[1]).toBeLessThan(named(winged, 'T')[1] - 0.03);
 
     const engine = new OrigamiEngine(PENGUIN_RECIPE, PENGUIN_NAMED);
