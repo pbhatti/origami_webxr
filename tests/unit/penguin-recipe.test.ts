@@ -179,7 +179,15 @@ describe('origami penguin recipe', () => {
     expect(lowered.faces).toHaveLength(turned.faces.length);
     expect(lowered.vertices).toHaveLength(turned.vertices.length);
     expect(topFaceAt(lowered, 0, PENGUIN_R * 0.8)?.tone).toBe('front');
-    expect(topFaceAt(turned, 0, PENGUIN_R * 0.8)?.tone).toBe('back');
+    for (const [x, y] of [
+      [0, PENGUIN_R * 0.8],
+      [0, PENGUIN_R * 0.2],
+      [0, 0],
+      [PENGUIN_R * 0.4, 0],
+      [-PENGUIN_R * 0.4, 0],
+    ] as const) {
+      expect(topFaceAt(turned, x, y)?.tone, `${x},${y}`).toBe('back');
+    }
     const spun = turnSnapshot(lowered, 180);
     expect(spun.vertices[0]?.[0]).toBeCloseTo(-(lowered.vertices[0]?.[0] ?? 0), 5);
     expect(spun.vertices[0]?.[1]).toBeCloseTo(lowered.vertices[0]?.[1] ?? 0, 5);

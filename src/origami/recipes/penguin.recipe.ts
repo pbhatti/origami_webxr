@@ -310,10 +310,25 @@ const HINGE_FLIP: HingeDefinition = {
   angleHint: [R * 0.6, 0, 0],
 };
 
+/**
+ * The flip turns the packet over, so layers that faced the viewer are now
+ * buried. The former base sheet becomes the top and its white side shows.
+ */
+function revealReverseSide(snapshot: MeshSnapshot): MeshSnapshot {
+  const maxLayer = snapshot.faces.reduce((max, face) => Math.max(max, face.layer), 0);
+  return {
+    ...snapshot,
+    faces: snapshot.faces.map((face) => ({ ...face, layer: maxLayer - face.layer })),
+  };
+}
+
 /** 180° around Y. The white back faces the viewer and the head stays at the top. */
-const turned = pose(turnSnapshot(lowered.snapshot, 180), Object.fromEntries(
-  Object.entries(lowered.snapshot.named ?? {}).map(([key, point]) => [key, [-point[0], point[1], -point[2]] as Vec3]),
-));
+const turned = pose(
+  revealReverseSide(turnSnapshot(lowered.snapshot, 180)),
+  Object.fromEntries(
+    Object.entries(lowered.snapshot.named ?? {}).map(([key, point]) => [key, [-point[0], point[1], -point[2]] as Vec3]),
+  ),
+);
 
 function cornerKey(side: 'left' | 'right'): 'L' | 'RIGHT' {
   const leftIsL = (turned.named?.L?.[0] ?? 0) < (turned.named?.RIGHT?.[0] ?? 0);
