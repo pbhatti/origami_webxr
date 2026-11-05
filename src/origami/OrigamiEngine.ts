@@ -1,6 +1,6 @@
 import { easeOutCubic, lerp } from '../utils/math.ts';
 import { debugEvents } from '../telemetry/DebugEvents.ts';
-import { arrowAdjustedAngle, grabAdjustedAngle } from './CreaseSolver.ts';
+import { arrowAdjustedAngle, flipDragAngle, grabAdjustedAngle } from './CreaseSolver.ts';
 import {
   applyFoldAssist,
   fartherAlong,
@@ -356,12 +356,24 @@ export class OrigamiEngine {
       step.minAngleDeg,
       step.maxAngleDeg,
     );
+    const flipRaw =
+      step.meshStrategy === 'turn'
+        ? flipDragAngle(
+            local,
+            this.grabLocal,
+            step.startAngleDeg,
+            step.minAngleDeg,
+            step.maxAngleDeg,
+          )
+        : null;
     const mapped =
       stepActionType(step) === 'crease-press'
         ? arrowRaw
-        : interpolatesMesh(step) || step.meshStrategy === 'roll'
-          ? Math.max(hingeRaw, arrowRaw)
-          : hingeRaw;
+        : step.meshStrategy === 'turn'
+          ? Math.max(arrowRaw, flipRaw ?? step.startAngleDeg)
+          : interpolatesMesh(step) || step.meshStrategy === 'roll'
+            ? Math.max(hingeRaw, arrowRaw)
+            : hingeRaw;
     const holdTarget = step.creasePressHoldMs ?? DEFAULT_CREASE_PRESS_HOLD_MS;
     const holdAngle =
       stepActionType(step) === 'crease-press'

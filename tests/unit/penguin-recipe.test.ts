@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PenguinCreature } from '../../src/animation/PenguinCreature.ts';
 import { sampleHitsRegion } from '../../src/input/GrabRegionMath.ts';
+import { rotateAroundY } from '../../src/origami/CreaseSolver.ts';
+import { paperFlipYawRad, turnSnapshot } from '../../src/origami/FoldPaper.ts';
 import { deformByHinge } from '../../src/origami/MeshSplitter.ts';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
 import { PAPER_SIZE_M } from '../../src/origami/placement.ts';
@@ -76,13 +78,14 @@ function topFaceAt(snapshot: MeshSnapshot, x: number, y: number): { tone: 'front
 }
 
 describe('origami penguin recipe', () => {
-  it('is a valid eight-stage blue penguin', () => {
+  it('is a valid nine-stage blue penguin', () => {
     expect(validateRecipe(PENGUIN_RECIPE)).toEqual([]);
-    expect(progressFromRecipe(PENGUIN_RECIPE).totalSteps).toBe(8);
+    expect(progressFromRecipe(PENGUIN_RECIPE).totalSteps).toBe(9);
     expect(PENGUIN_STEPS).toEqual([
       'center-creases',
       'bottom-corner',
       'lower-body',
+      'flip-paper',
       'sides-inward',
       'side-flaps',
       'wings',
@@ -94,6 +97,7 @@ describe('origami penguin recipe', () => {
       'Create center creases',
       'Fold the bottom corner',
       'Shape the lower body',
+      'Flip the paper',
       'Fold both sides inward',
       'Open the side flaps',
       'Shape the wings',
@@ -145,33 +149,72 @@ describe('origami penguin recipe', () => {
     expect(PENGUIN_RECIPE.steps.some((step) => step.id === 'penguin-center-tip')).toBe(false);
   });
 
-  it('goes from the lower body straight into the side folds', () => {
-    expect(PENGUIN_RECIPE.steps.some((step) => step.id === 'penguin-center-tip' || step.meshStrategy === 'turn')).toBe(false);
+  it('flips the whole sheet 180° before the side folds', () => {
+    expect(PENGUIN_RECIPE.steps.some((step) => step.id === 'penguin-center-tip')).toBe(false);
     const lower = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-lower');
+    const flip = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-flip');
     const left = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-side-left');
     const right = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-side-right');
-    expect(lower?.toSnapshotId).toBe('turned');
+    const lowered = PENGUIN_RECIPE.snapshots.lowered!;
+    const turned = PENGUIN_RECIPE.snapshots.turned!;
+    expect(lower?.toSnapshotId).toBe('lowered');
+    expect(flip?.title).toBe('Flip the paper');
+    expect(flip?.instruction).toBe('Rotate the paper 180° to reveal its reverse side.');
+    expect(flip?.meshStrategy).toBe('turn');
+    expect(flip?.fromSnapshotId).toBe('lowered');
+    expect(flip?.toSnapshotId).toBe('turned');
+    expect(flip?.targetAngleDeg).toBe(180);
+    expect(flip?.parallelGroup).toBeUndefined();
+    expect(flip?.id.endsWith('-open')).toBe(false);
+    expect(flip?.arrowPathLocal.length).toBeGreaterThan(4);
+    expect(Math.max(...(flip?.arrowPathLocal ?? []).map((point) => point[2]))).toBeGreaterThan(0.04);
+    expect(sampleHitsRegion([-0.08, 0.02, 0], flip!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([0.08, -0.02, 0], flip!.movingRegion, PAPER_SIZE_M)).toBe(true);
     expect(left?.fromSnapshotId).toBe('turned');
     expect(right?.fromSnapshotId).toBe('turned');
-    expect(left?.progressStage).toBe(4);
-    expect(right?.progressStage).toBe(4);
+    expect(left?.progressStage).toBe(5);
+    expect(right?.progressStage).toBe(5);
     expect(left?.parallelGroup).toBe('penguin-sides');
     expect(right?.parallelGroup).toBe('penguin-sides');
-    expect(topFaceAt(PENGUIN_RECIPE.snapshots.turned!, 0, PENGUIN_R * 0.8)?.tone).toBe('back');
+    expect(lowered.faces).toHaveLength(turned.faces.length);
+    expect(lowered.vertices).toHaveLength(turned.vertices.length);
+    expect(topFaceAt(lowered, 0, PENGUIN_R * 0.8)?.tone).toBe('front');
+    expect(topFaceAt(turned, 0, PENGUIN_R * 0.8)?.tone).toBe('back');
+    const spun = turnSnapshot(lowered, 180);
+    expect(spun.vertices[0]?.[0]).toBeCloseTo(-(lowered.vertices[0]?.[0] ?? 0), 5);
+    expect(spun.vertices[0]?.[1]).toBeCloseTo(lowered.vertices[0]?.[1] ?? 0, 5);
+    const rightEdge = rotateAroundY([0.1, 0.02, 0], (paperFlipYawRad(90) * 180) / Math.PI);
+    expect(rightEdge[2]).toBeGreaterThan(0.05);
 
     const engine = new OrigamiEngine(PENGUIN_RECIPE, PENGUIN_NAMED);
-    for (let guard = 0; guard < 12 && engine.currentStep?.id !== 'penguin-side-left'; guard += 1) {
+    for (let guard = 0; guard < 12 && engine.currentStep?.id !== 'penguin-flip'; guard += 1) {
       expect(engine.currentStep?.id).not.toBe('penguin-center-tip');
       commitCurrent(engine);
     }
-    expect(engine.currentStep?.id).toBe('penguin-side-left');
+    expect(engine.currentStep?.id).toBe('penguin-flip');
     expect(engine.progress().activeIndex).toBe(3);
     expect(engine.isStepCommitted('penguin-lower')).toBe(true);
+    const start = flip!.arrowPathLocal[0]!;
+    const end = flip!.arrowPathLocal.at(-1)!;
+    engine.beginGrab(start);
+    engine.updateFold(end, false, 160);
+    expect(engine.angle).toBeGreaterThan(150);
+    for (let frame = 0; frame < 40 && engine.currentStep?.id === 'penguin-flip'; frame += 1) {
+      engine.tick(32);
+    }
+    expect(engine.currentStep?.id).toBe('penguin-side-left');
+    expect(engine.progress().activeIndex).toBe(4);
+    expect(engine.isStepCommitted('penguin-flip')).toBe(true);
     commitCurrent(engine);
-    expect(engine.currentStep?.progressStage).toBe(4);
+    expect(engine.currentStep?.progressStage).toBe(5);
     expect(engine.currentStep?.id).not.toBe('penguin-flap-left');
     expect(engine.isStepCommitted('penguin-side-left')).toBe(true);
     expect(engine.isStepCommitted('penguin-side-right')).toBe(false);
+    engine.reset(PENGUIN_RECIPE, PENGUIN_NAMED);
+    expect(engine.currentStep?.id).toBe('penguin-vertical-fold');
+    expect(engine.currentStep?.fromSnapshotId).toBe('diamond');
+    expect(engine.angle).toBe(0);
+    expect(engine.isStepCommitted('penguin-flip')).toBe(false);
   });
 
   it('opens both wings past the body and keeps them blue for the beak', () => {
@@ -185,7 +228,7 @@ describe('origami penguin recipe', () => {
     const right = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-wing-right');
     expect(left?.fromSnapshotId).toBe('wing-ready');
     expect(right?.fromSnapshotId).toBe('wing-ready');
-    expect(left?.progressStage).toBe(6);
+    expect(left?.progressStage).toBe(7);
     expect(right?.parallelGroup).toBe('penguin-wings');
 
     for (const [step, hint, sign] of [
@@ -261,7 +304,7 @@ describe('origami penguin recipe', () => {
 
   it('shapes the beak from the small top flap and shows eyes only at the last step', () => {
     const beak = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-beak');
-    expect(beak?.progressStage).toBe(7);
+    expect(beak?.progressStage).toBe(8);
     expect(beak?.hinge.p0[1]).toBeCloseTo(PENGUIN_BEAK_FRAC * PENGUIN_R);
     expect(beak?.hinge.p0[1]).toBeGreaterThan(0.7 * PENGUIN_R);
     expect(Math.abs(beak?.hinge.p0[0] ?? 1)).toBeLessThan(0.05);
@@ -270,10 +313,10 @@ describe('origami penguin recipe', () => {
     expect(named(beaked, 'T')[1]).toBeLessThan(named(winged, 'T')[1] - 0.03);
     expect(named(beaked, 'T')[1]).toBeGreaterThan(0.4 * PENGUIN_R);
     const decor = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-decorate');
-    expect(decor?.progressStage).toBe(8);
+    expect(decor?.progressStage).toBe(9);
     expect(decor?.actionType).toBe('crease-press');
-    expect(PENGUIN_RECIPE.steps.filter((step) => step.progressStage === 8)).toHaveLength(1);
-    expect(PENGUIN_RECIPE.steps.every((step) => step.progressStage !== 8 || step.id === 'penguin-decorate')).toBe(true);
+    expect(PENGUIN_RECIPE.steps.filter((step) => step.progressStage === 9)).toHaveLength(1);
+    expect(PENGUIN_RECIPE.steps.every((step) => step.progressStage !== 9 || step.id === 'penguin-decorate')).toBe(true);
 
     const creature = new PenguinCreature();
     expect(creature.active).toBe(false);

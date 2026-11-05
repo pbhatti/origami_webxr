@@ -33,7 +33,7 @@ import { PaperMover } from './PaperMover.ts';
 import { debugEvents } from '../telemetry/DebugEvents.ts';
 import { disposeObject3D } from '../utils/dispose.ts';
 import { FoldFeedbackController } from '../feedback/FoldFeedbackController.ts';
-import { FOLD_PAPER_COLOR, FoldPaper } from './FoldPaper.ts';
+import { FOLD_PAPER_COLOR, FoldPaper, paperFlipYawRad } from './FoldPaper.ts';
 import { OrigamiEngine } from './OrigamiEngine.ts';
 import {
   PAPER_TILT_RAD,
@@ -609,6 +609,7 @@ export class PaperStage {
   }
 
   applyFoldVisuals(folding: boolean): void {
+    this.syncPaperFlip();
     this.sheet.apply(this.engine.currentStep, this.engine.fromSnapshot, this.engine.toSnapshot, this.engine.angle);
     this.guides.tick(0, this.guideState(folding));
     this.syncLadybugTip();
@@ -1045,7 +1046,7 @@ export class PaperStage {
   }
 
   preparePenguinStep(stage: number): number {
-    const target = Math.min(8, Math.max(1, Math.round(stage)));
+    const target = Math.min(9, Math.max(1, Math.round(stage)));
     this.penguinPinch.reset();
     this.owlOpenStepId = null;
     this.penguinCreature.stop();
@@ -1260,6 +1261,12 @@ export class PaperStage {
     this.guides.setGuideRaycastEnabled(step?.id !== 'ladybug-tip');
   }
 
+  /** Spin the whole sheet around its vertical axis. Fold meshes stay in paper-local space. */
+  private syncPaperFlip(): void {
+    const step = this.engine.currentStep;
+    this.sheet.group.rotation.y = step?.meshStrategy === 'turn' ? paperFlipYawRad(this.engine.angle) : 0;
+  }
+
   private guideState(folding: boolean) {
     return {
       folding: folding || this.engine.enginePhase === 'folding',
@@ -1280,7 +1287,13 @@ export class PaperStage {
     this.syncLadybugTip();
     this.creaseDebug.update(step, from, this.engine.angle, this.engine.guideSteps());
     const pending = this.engine.pendingParallelSteps();
-    this.overlay.setRegions(step?.movingRegion, step?.optionalHoldRegion, pending.map((entry) => entry.movingRegion));
+    const flipping = step?.meshStrategy === 'turn';
+    this.overlay.setRegions(
+      flipping ? undefined : step?.movingRegion,
+      flipping ? undefined : step?.optionalHoldRegion,
+      flipping ? [] : pending.map((entry) => entry.movingRegion),
+    );
+    this.syncPaperFlip();
     this.syncPanel();
   }
 

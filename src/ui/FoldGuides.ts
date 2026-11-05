@@ -136,7 +136,12 @@ export class FoldGuides {
       if (idle && ARROW_GUIDE.animate) {
         lane.phase += dtSec;
       }
-      const showCrease = this.creaseVisible(lane.stepId) && CREASE_GUIDE.visible && !lane.press && lane.fade > 0.02;
+      const showCrease =
+        this.creaseVisible(lane.stepId) &&
+        CREASE_GUIDE.visible &&
+        !lane.press &&
+        lane.fade > 0.02 &&
+        !this.isPaperFlip(lane.stepId);
       ribbonOpacity(lane.crease, (folding ? 0.55 : 0.95) * lane.fade);
       lane.crease.visible = showCrease;
       const arrowOpacity = (snapping ? 0.2 : folding ? 0.28 : 0.9) * lane.fade;
@@ -150,7 +155,9 @@ export class FoldGuides {
     }
     this.extras.visible = CREASE_GUIDE.visible;
     this.history.visible = CREASE_GUIDE.visible;
-    this.ghost.visible = !tickState.folding && !tickState.snapping && !tickState.complete;
+    const activeId = tickState.activeStepId ?? this.activeStepId;
+    this.ghost.visible =
+      !this.isPaperFlip(activeId) && !tickState.folding && !tickState.snapping && !tickState.complete;
   }
 
   hide(): void {
@@ -159,6 +166,10 @@ export class FoldGuides {
 
   show(): void {
     this.group.visible = this.lanes.length > 0;
+  }
+
+  private isPaperFlip(stepId: string | null): boolean {
+    return this.steps.some((step) => step.id === stepId && step.meshStrategy === 'turn');
   }
 
   private creaseVisible(stepId: string): boolean {

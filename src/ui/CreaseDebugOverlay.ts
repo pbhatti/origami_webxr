@@ -102,7 +102,7 @@ export class CreaseDebugOverlay {
       return;
     }
     const debug = foldAxisDebug(step, fromSnap, angleDeg);
-    const showHinge = FOLD_GEOMETRY_INSPECTOR.hingeAxis;
+    const showHinge = FOLD_GEOMETRY_INSPECTOR.hingeAxis && step.meshStrategy !== 'turn';
     this.hinge.visible = showHinge;
     this.visual.visible = showHinge;
     this.start.visible = showHinge;

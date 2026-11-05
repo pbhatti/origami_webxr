@@ -101,6 +101,14 @@ export function deformFoldSnapshot(
   return { ...result.snapshot, faces };
 }
 
+/**
+ * Parent yaw for a paper flip. Negative Y brings the right edge toward the
+ * viewer; 180° lands on the same pose as `turnSnapshot`.
+ */
+export function paperFlipYawRad(angleDeg: number): number {
+  return (-angleDeg * Math.PI) / 180;
+}
+
 /** Rotate the folded sheet around its vertical axis so the reverse side faces the viewer. */
 export function turnSnapshot(snapshot: MeshSnapshot, angleDeg: number): MeshSnapshot {
   const theta = (Math.PI * angleDeg) / 180;
@@ -237,7 +245,7 @@ export class FoldPaper {
     if (!fromSnap) {
       return;
     }
-    if (!step || !toSnap) {
+    if (!step || !toSnap || step.meshStrategy === 'turn') {
       this.setSnapshot(fromSnap);
       return;
     }

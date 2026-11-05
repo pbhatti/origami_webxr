@@ -112,6 +112,32 @@ export function grabAdjustedAngle(
   return clamp(startAngleDeg + t * (maxAngleDeg - startAngleDeg), minAngleDeg, maxAngleDeg);
 }
 
+/**
+ * Orbit around the paper's vertical axis. Motion that swings the right edge
+ * toward the viewer is forward. A ray stuck on the sheet plane returns null
+ * so the curved arrow can drive the same flip.
+ */
+export function flipDragAngle(
+  local: Vec3,
+  grabLocal: Vec3,
+  startAngleDeg: number,
+  minAngleDeg: number,
+  maxAngleDeg: number,
+): number | null {
+  const depth = Math.max(Math.abs(local[2]), Math.abs(grabLocal[2]));
+  const radius = Math.hypot(local[0], local[2]);
+  if (depth < 0.012 || radius < 0.02) {
+    return null;
+  }
+  let delta = (Math.atan2(local[2], local[0]) - Math.atan2(grabLocal[2], grabLocal[0])) * (180 / Math.PI);
+  if (delta > 180) {
+    delta -= 360;
+  } else if (delta < -180) {
+    delta += 360;
+  }
+  return clamp(startAngleDeg + Math.max(0, delta), minAngleDeg, maxAngleDeg);
+}
+
 export function arrowAdjustedAngle(
   local: Vec3,
   grabLocal: Vec3,
