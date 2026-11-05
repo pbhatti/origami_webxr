@@ -86,6 +86,7 @@ export class PaperStage {
   private readonly creaseDebug = new CreaseDebugOverlay();
   private readonly foxShape = new FoxShapeInspector();
   private debugVisible = false;
+  private lastPenguinFlapLog = '';
   private readonly foldingPanel = new UnifiedFoldingPanel();
   private lastStepId = '';
   private lastTitle = '';
@@ -627,6 +628,47 @@ export class PaperStage {
     this.syncDinosaurPresentation();
     this.syncLadybugPresentation();
     this.syncPenguinPresentation();
+    this.notePenguinFlaps();
+  }
+
+  /** Temporary comparison of the two penguin side flaps while that step is open. */
+  private notePenguinFlaps(): void {
+    const step = this.engine.currentStep;
+    if (this.animalId !== 'penguin' || step?.parallelGroup !== 'penguin-flaps') {
+      this.lastPenguinFlapLog = '';
+      return;
+    }
+    const from = this.engine.fromSnapshot;
+    if (!from) {
+      return;
+    }
+    const bucket = Math.round(this.engine.foldCompletion * 4);
+    const key = `${step.id}|${this.engine.enginePhase}|${bucket}`;
+    if (key === this.lastPenguinFlapLog) {
+      return;
+    }
+    this.lastPenguinFlapLog = key;
+    const lines = this.engine.guideSteps().map((sibling) => {
+      const active = sibling.id === step.id;
+      const debug = foldAxisDebug(sibling, from, active ? this.engine.angle : sibling.startAngleDeg);
+      const originals = [...new Set(debug.movingFaceIds.map((id) => id.split(':')[0] ?? id))];
+      const layers = [...new Set(debug.foldGroup.ownership.map((entry) => entry.layer))];
+      const point = (value: readonly number[]) => value.map((coord) => coord.toFixed(3)).join(',');
+      const progress = active ? Math.round(this.engine.foldCompletion * 100) : 0;
+      const snap = this.engine.isStepCommitted(sibling.id) ? 'committed' : this.engine.enginePhase;
+      return [
+        sibling.id,
+        `hinge ${point(sibling.hinge.p0)} -> ${point(sibling.hinge.p1)}`,
+        `faces ${originals.join(',') || 'none'}`,
+        `layers ${layers.join(',') || 'none'}`,
+        `angle ${active ? this.engine.angle.toFixed(0) : '0'}/${sibling.targetAngleDeg}`,
+        `dir ${sibling.direction}`,
+        `progress ${progress}%`,
+        `snap ${snap}`,
+        `movingVerts ${debug.movingVertexIds.length}`,
+      ].join(' | ');
+    });
+    console.info(`[penguin-flap]\n${lines.join('\n')}`);
   }
 
   commitProgress(): void {

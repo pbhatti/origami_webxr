@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { PenguinCreature } from '../../src/animation/PenguinCreature.ts';
+import { sampleHitsRegion } from '../../src/input/GrabRegionMath.ts';
 import { deformByHinge } from '../../src/origami/MeshSplitter.ts';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
+import { PAPER_SIZE_M } from '../../src/origami/placement.ts';
 import { origamiPaperMaterial } from '../../src/origami/OrigamiPaperMaterial.ts';
 import { progressFromRecipe } from '../../src/origami/progressModel.ts';
 import { validateRecipe } from '../../src/origami/RecipeValidator.ts';
@@ -173,7 +175,9 @@ describe('origami penguin recipe', () => {
   });
 
   it('opens both wings past the body and keeps them blue for the beak', () => {
+    const flaps = PENGUIN_RECIPE.snapshots['flap-ready']!;
     const ready = PENGUIN_RECIPE.snapshots['wing-ready']!;
+    const opened = PENGUIN_RECIPE.snapshots.opened!;
     const winged = PENGUIN_RECIPE.snapshots.winged!;
     const beaked = PENGUIN_RECIPE.snapshots.beaked!;
     const bodyEdge = 0.55 * PENGUIN_R;
@@ -200,6 +204,37 @@ describe('origami penguin recipe', () => {
     }
 
     const outline = winged.outline ?? [];
+    const leftFlap = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-flap-left');
+    const rightFlap = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-flap-right');
+    expect(leftFlap?.fromSnapshotId).toBe('flap-ready');
+    expect(rightFlap?.fromSnapshotId).toBe('flap-ready');
+    expect(leftFlap?.parallelGroup).toBe('penguin-flaps');
+    expect(leftFlap?.hinge.p0[0]).toBeLessThan(-bodyEdge + 0.001);
+    expect(rightFlap?.hinge.p0[0]).toBeGreaterThan(bodyEdge - 0.001);
+    expect(leftFlap?.hinge.p0[0]).not.toBe(rightFlap?.hinge.p0[0]);
+    for (const [step, hint, sign] of [
+      [leftFlap, flaps.named?.RIGHT, -1],
+      [rightFlap, flaps.named?.L, 1],
+    ] as const) {
+      const moved = deformByHinge(flaps, step!.hinge, -180, hint);
+      expect(moved.movingVertexIds.size).toBeGreaterThan(0);
+      const originals = [...new Set([...moved.movingFaceIds].map((id) => id.split(':')[0] ?? id))].sort();
+      expect(originals).toEqual(sign < 0 ? ['bot-right', 'top-right'] : ['bot-left', 'top-left']);
+      for (const index of moved.movingVertexIds) {
+        const landed = moved.snapshot.vertices[index];
+        expect(Math.abs(landed![0])).toBeGreaterThan(bodyEdge);
+        expect(Math.sign(landed![0])).toBe(sign);
+      }
+    }
+    expect(sampleHitsRegion([-0.07, 0.02, 0.01], leftFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([0.07, 0.02, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([-0.07, 0.02, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(false);
+    expect(topFaceAt(opened, -0.1, 0)?.tone).toBe('front');
+    expect(topFaceAt(opened, 0.1, 0)?.tone).toBe('front');
+    const openedOutline = opened.outline ?? [];
+    expect(Math.min(...openedOutline.map((point) => point[0]))).toBeLessThan(-bodyEdge - 0.04);
+    expect(Math.max(...openedOutline.map((point) => point[0]))).toBeGreaterThan(bodyEdge + 0.04);
+
     expect(Math.min(...outline.map((point) => point[0]))).toBeLessThan(-bodyEdge - 0.01);
     expect(Math.max(...outline.map((point) => point[0]))).toBeGreaterThan(bodyEdge + 0.01);
     expect(named(winged, 'T')[1]).toBeCloseTo(PENGUIN_R, 3);

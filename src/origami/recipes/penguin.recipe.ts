@@ -329,80 +329,8 @@ const sided = foldStacked(sideLeft.snapshot, HINGE_SIDE_R, RIGHT_TIP, {
   [RIGHT_KEY]: [RIGHT_IN[0], RIGHT_IN[1], 0],
 });
 
-const HINGE_OPEN_L = hingeOf(
-  'penguin-flap-left',
-  [-OPEN_X, -R, 0],
-  [-OPEN_X, R, 0],
-  [LEFT_IN[0], LEFT_IN[1], 0],
-  { minMovingLayer: sideLeft.minLayer, maxMovingLayer: sideLeft.maxLayer },
-);
-const HINGE_OPEN_R = hingeOf(
-  'penguin-flap-right',
-  [OPEN_X, R, 0],
-  [OPEN_X, -R, 0],
-  [RIGHT_IN[0], RIGHT_IN[1], 0],
-  { minMovingLayer: sided.minLayer, maxMovingLayer: sided.maxLayer },
-);
-const LEFT_OUT = landmarkAfterHinge([LEFT_IN[0], LEFT_IN[1], 0], HINGE_OPEN_L, 180, 'valley');
-const RIGHT_OUT = landmarkAfterHinge([RIGHT_IN[0], RIGHT_IN[1], 0], HINGE_OPEN_R, 180, 'valley');
-const openLeft = foldStacked(sided.snapshot, HINGE_OPEN_L, [LEFT_IN[0], LEFT_IN[1], 0], {
-  ...sided.snapshot.named,
-  [LEFT_KEY]: [LEFT_OUT[0], LEFT_OUT[1], 0],
-});
-const opened = foldStacked(openLeft.snapshot, HINGE_OPEN_R, [RIGHT_IN[0], RIGHT_IN[1], 0], {
-  ...openLeft.snapshot.named,
-  [RIGHT_KEY]: [RIGHT_OUT[0], RIGHT_OUT[1], 0],
-});
-
 function copyPoint(point: Vec3): Vec3 {
   return [point[0], point[1], point[2]];
-}
-
-/** Layer of the side flap that is still lying on the body, between the open crease and the side crease. */
-function bandLayer(snapshot: MeshSnapshot, sign: -1 | 1): number {
-  const onBand = (x: number) =>
-    sign < 0 ? x < -OPEN_X + 0.004 && x > -SIDE_X - 0.001 : x > OPEN_X - 0.004 && x < SIDE_X + 0.001;
-  const stats = new Map<number, { total: number; inside: number; minY: number; maxY: number }>();
-  for (const face of snapshot.faces) {
-    const points = face.vertices.flatMap((index) => {
-      const point = snapshot.vertices[index];
-      return point ? [point] : [];
-    });
-    if (points.length < 3) {
-      continue;
-    }
-    const cx = points.reduce((sum, point) => sum + point[0], 0) / points.length;
-    const current = stats.get(face.layer) ?? {
-      total: 0,
-      inside: 0,
-      minY: Number.POSITIVE_INFINITY,
-      maxY: Number.NEGATIVE_INFINITY,
-    };
-    current.total += 1;
-    if (onBand(cx)) {
-      current.inside += 1;
-      const ys = points.map((point) => point[1]);
-      current.minY = Math.min(current.minY, ...ys);
-      current.maxY = Math.max(current.maxY, ...ys);
-    }
-    stats.set(face.layer, current);
-  }
-  let bestLayer = -1;
-  let bestSpan = -1;
-  for (const [layer, stat] of stats) {
-    if (stat.inside < 4 || stat.inside / stat.total < 0.8) {
-      continue;
-    }
-    const span = stat.maxY - stat.minY;
-    if (span > bestSpan) {
-      bestLayer = layer;
-      bestSpan = span;
-    }
-  }
-  if (bestLayer < 0) {
-    throw new Error('penguin wing band is missing');
-  }
-  return bestLayer;
 }
 
 /**
@@ -448,85 +376,132 @@ function peelLayer(snapshot: MeshSnapshot, layer: number, p0: Vec3, p1: Vec3): M
   };
 }
 
-function reverseLayers(snapshot: MeshSnapshot, layers: Set<number>): MeshSnapshot {
-  return {
-    ...snapshot,
-    faces: snapshot.faces.map((face) =>
-      layers.has(face.layer) ? { ...face, vertices: [...face.vertices].reverse() } : face,
-    ),
-  };
-}
-
-/** The opened tip is the colored side facing down. Reverse it so the outer surface is blue. */
-function reverseNear(snapshot: MeshSnapshot, tip: Vec3): MeshSnapshot {
-  const near = new Set<number>();
-  snapshot.vertices.forEach((vertex, index) => {
-    if (Math.hypot(vertex[0] - tip[0], vertex[1] - tip[1]) < 0.004) {
-      near.add(index);
+/** Layers that belong only to one folded side, not the shared body. */
+function sideFlapLayers(snapshot: MeshSnapshot, sign: -1 | 1): number[] {
+  const stats = new Map<number, { onSide: number; total: number }>();
+  for (const face of snapshot.faces) {
+    const points = face.vertices.flatMap((index) => {
+      const point = snapshot.vertices[index];
+      return point ? [point] : [];
+    });
+    if (points.length < 3) {
+      continue;
     }
-  });
+    const cx = points.reduce((sum, point) => sum + point[0], 0) / points.length;
+    const stat = stats.get(face.layer) ?? { onSide: 0, total: 0 };
+    stat.total += 1;
+    if (sign * cx > OPEN_X * 0.2) {
+      stat.onSide += 1;
+    }
+    stats.set(face.layer, stat);
+  }
+  const layers = [...stats.entries()]
+    .filter(([, stat]) => stat.total >= 4 && stat.onSide / stat.total >= 0.85)
+    .map(([layer]) => layer)
+    .sort((left, right) => left - right);
+  if (layers.length === 0) {
+    throw new Error(`penguin ${sign < 0 ? 'left' : 'right'} flap is missing`);
+  }
+  return layers;
+}
+
+function peelLayers(snapshot: MeshSnapshot, layers: number[], p0: Vec3, p1: Vec3): MeshSnapshot {
+  return layers.reduce((mesh, layer) => peelLayer(mesh, layer, p0, p1), snapshot);
+}
+
+/** Blue faces become white after a flat fold. Reverse them first so the open wing stays blue. */
+function reverseBlueFaces(snapshot: MeshSnapshot, layers: Set<number>): MeshSnapshot {
   return {
     ...snapshot,
-    faces: snapshot.faces.map((face) =>
-      face.vertices.some((index) => near.has(index))
-        ? { ...face, vertices: [...face.vertices].reverse() }
-        : face,
-    ),
+    faces: snapshot.faces.map((face) => {
+      if (!layers.has(face.layer)) {
+        return face;
+      }
+      const points = face.vertices.flatMap((index) => {
+        const point = snapshot.vertices[index];
+        return point ? [point] : [];
+      });
+      if (points.length < 3) {
+        return face;
+      }
+      const [a, b, c] = points;
+      if (!a || !b || !c) {
+        return face;
+      }
+      const nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+      return nz >= 0 ? { ...face, vertices: [...face.vertices].reverse() } : face;
+    }),
   };
 }
 
-function liftLayers(snapshot: MeshSnapshot, layers: number[]): { snapshot: MeshSnapshot; lifted: number[] } {
-  const moving = new Set(layers);
-  const maxStationary = snapshot.faces.reduce(
-    (max, face) => (moving.has(face.layer) ? max : Math.max(max, face.layer)),
-    0,
-  );
-  const lifted = layers.map((_, index) => maxStationary + 1 + index);
-  const remap = new Map(layers.map((layer, index) => [layer, lifted[index]!]));
-  return {
-    lifted,
-    snapshot: {
-      ...snapshot,
-      faces: snapshot.faces.map((face) => {
-        const next = remap.get(face.layer);
-        return next == null ? face : { ...face, layer: next };
-      }),
-    },
-  };
-}
-
-const LEFT_HINGE_LINE: [Vec3, Vec3] = [[-SIDE_X, -R, 0], [-SIDE_X, R, 0]];
-const RIGHT_HINGE_LINE: [Vec3, Vec3] = [[SIDE_X, R, 0], [SIDE_X, -R, 0]];
-const LEFT_BAND = bandLayer(opened.snapshot, -1);
-const RIGHT_BAND = bandLayer(opened.snapshot, 1);
-const WL: Vec3 = [-(SIDE_X + OPEN_X) / 2, 0.02, 0];
-const WR: Vec3 = [(SIDE_X + OPEN_X) / 2, 0.02, 0];
-
-const peeled = peelLayer(
-  peelLayer(opened.snapshot, LEFT_BAND, LEFT_HINGE_LINE[0], LEFT_HINGE_LINE[1]),
-  RIGHT_BAND,
-  RIGHT_HINGE_LINE[0],
-  RIGHT_HINGE_LINE[1],
+const LEFT_FLAP_LINE: [Vec3, Vec3] = [[-SIDE_X, -R, 0], [-SIDE_X, R, 0]];
+const RIGHT_FLAP_LINE: [Vec3, Vec3] = [[SIDE_X, R, 0], [SIDE_X, -R, 0]];
+const LEFT_FLAP_LAYERS = sideFlapLayers(sided.snapshot, -1);
+const RIGHT_FLAP_LAYERS = sideFlapLayers(sided.snapshot, 1);
+const peeledFlaps = peelLayers(
+  peelLayers(sided.snapshot, LEFT_FLAP_LAYERS, LEFT_FLAP_LINE[0], LEFT_FLAP_LINE[1]),
+  RIGHT_FLAP_LAYERS,
+  RIGHT_FLAP_LINE[0],
+  RIGHT_FLAP_LINE[1],
 );
-const turnedOut = reverseNear(
-  reverseNear(reverseLayers(peeled, new Set([LEFT_BAND, RIGHT_BAND])), [LEFT_OUT[0], LEFT_OUT[1], 0]),
-  [RIGHT_OUT[0], RIGHT_OUT[1], 0],
+const flapReady = pose(
+  reverseBlueFaces(peeledFlaps, new Set([...LEFT_FLAP_LAYERS, ...RIGHT_FLAP_LAYERS])),
+  sided.snapshot.named ?? {},
 );
-const raisedWings = liftLayers(turnedOut, [LEFT_BAND, RIGHT_BAND]);
-const wingReady = pose(raisedWings.snapshot, { ...opened.snapshot.named, WL, WR });
-const LEFT_WING_LAYER = raisedWings.lifted[0]!;
-const RIGHT_WING_LAYER = raisedWings.lifted[1]!;
-const WING_REACH = SIDE_X - OPEN_X + 0.012;
-
-const HINGE_WING_L = hingeOf('penguin-wing-left', LEFT_HINGE_LINE[0], LEFT_HINGE_LINE[1], WL, {
-  minMovingLayer: LEFT_WING_LAYER,
-  maxMovingLayer: LEFT_WING_LAYER,
-  reachM: WING_REACH,
+const FLAP_REACH = SIDE_X + 0.02;
+const HINGE_OPEN_L = hingeOf(
+  'penguin-flap-left',
+  LEFT_FLAP_LINE[0],
+  LEFT_FLAP_LINE[1],
+  [LEFT_IN[0], LEFT_IN[1], 0],
+  {
+    minMovingLayer: Math.min(...LEFT_FLAP_LAYERS),
+    maxMovingLayer: Math.max(...LEFT_FLAP_LAYERS),
+    reachM: FLAP_REACH,
+  },
+);
+const HINGE_OPEN_R = hingeOf(
+  'penguin-flap-right',
+  RIGHT_FLAP_LINE[0],
+  RIGHT_FLAP_LINE[1],
+  [RIGHT_IN[0], RIGHT_IN[1], 0],
+  {
+    minMovingLayer: Math.min(...RIGHT_FLAP_LAYERS),
+    maxMovingLayer: Math.max(...RIGHT_FLAP_LAYERS),
+    reachM: FLAP_REACH,
+  },
+);
+const LEFT_OUT = landmarkAfterHinge([LEFT_IN[0], LEFT_IN[1], 0], HINGE_OPEN_L, 180, 'valley');
+const RIGHT_OUT = landmarkAfterHinge([RIGHT_IN[0], RIGHT_IN[1], 0], HINGE_OPEN_R, 180, 'valley');
+const openLeft = foldStacked(flapReady, HINGE_OPEN_L, [LEFT_IN[0], LEFT_IN[1], 0], {
+  ...flapReady.named,
+  [LEFT_KEY]: [LEFT_OUT[0], LEFT_OUT[1], 0],
 });
-const HINGE_WING_R = hingeOf('penguin-wing-right', RIGHT_HINGE_LINE[0], RIGHT_HINGE_LINE[1], WR, {
-  minMovingLayer: RIGHT_WING_LAYER,
-  maxMovingLayer: RIGHT_WING_LAYER,
-  reachM: WING_REACH,
+const opened = foldStacked(openLeft.snapshot, HINGE_OPEN_R, [RIGHT_IN[0], RIGHT_IN[1], 0], {
+  ...openLeft.snapshot.named,
+  [RIGHT_KEY]: [RIGHT_OUT[0], RIGHT_OUT[1], 0],
+});
+
+const WL: Vec3 = [LEFT_OUT[0], LEFT_OUT[1], 0];
+const WR: Vec3 = [RIGHT_OUT[0], RIGHT_OUT[1], 0];
+const wingReady = pose(opened.snapshot, { ...opened.snapshot.named, WL, WR });
+/** Outside the body, so shaping the tip cannot fold the open wing back in. */
+function outerWingLine(tip: Vec3): [Vec3, Vec3] {
+  const sign = tip[0] < 0 ? -1 : 1;
+  const x = sign * SIDE_X + (tip[0] - sign * SIDE_X) * 0.7;
+  return [[x, -R, 0], [x, R, 0]];
+}
+const LEFT_WING_LINE = outerWingLine(WL);
+const RIGHT_WING_LINE = outerWingLine(WR);
+const HINGE_WING_L = hingeOf('penguin-wing-left', LEFT_WING_LINE[0], LEFT_WING_LINE[1], WL, {
+  minMovingLayer: Math.min(...LEFT_FLAP_LAYERS),
+  maxMovingLayer: Math.max(...LEFT_FLAP_LAYERS) + 12,
+  reachM: Math.abs(WL[0]) - Math.abs(LEFT_WING_LINE[0][0]) + 0.012,
+});
+const HINGE_WING_R = hingeOf('penguin-wing-right', RIGHT_WING_LINE[0], RIGHT_WING_LINE[1], WR, {
+  minMovingLayer: Math.min(...RIGHT_FLAP_LAYERS),
+  maxMovingLayer: Math.max(...RIGHT_FLAP_LAYERS) + 12,
+  reachM: Math.abs(WR[0]) - Math.abs(RIGHT_WING_LINE[0][0]) + 0.012,
 });
 const LEFT_WING = landmarkAfterHinge(WL, HINGE_WING_L, 180, 'valley');
 const RIGHT_WING = landmarkAfterHinge(WR, HINGE_WING_R, 180, 'valley');
@@ -593,6 +568,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
     'side-left': sideLeft.snapshot,
     sided: sided.snapshot,
     'open-left': openLeft.snapshot,
+    'flap-ready': flapReady,
     opened: opened.snapshot,
     'wing-ready': wingReady,
     'wing-left': wingLeft.snapshot,
@@ -829,7 +805,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       progressStage: 5,
       title: STAGE_TITLE[4],
       instruction: STAGE_INSTRUCTION[4],
-      fromSnapshotId: 'sided',
+      fromSnapshotId: 'flap-ready',
       toSnapshotId: 'open-left',
       actionType: 'fold',
       hinge: HINGE_OPEN_L,
@@ -837,7 +813,12 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-flap-left',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[LEFT_IN[0], LEFT_IN[1], 0], [-OPEN_X, 0.03, 0], [-OPEN_X, -0.03, 0]]),
+        polygonUV: uvPoly([
+          [LEFT_IN[0], 0.055, 0],
+          [-SIDE_X, 0.06, 0],
+          [-SIDE_X, -0.032, 0],
+          [LEFT_IN[0], -0.032, 0],
+        ]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -857,7 +838,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       progressStage: 5,
       title: STAGE_TITLE[4],
       instruction: STAGE_INSTRUCTION[4],
-      fromSnapshotId: 'sided',
+      fromSnapshotId: 'flap-ready',
       toSnapshotId: 'opened',
       actionType: 'fold',
       hinge: HINGE_OPEN_R,
@@ -865,7 +846,12 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-flap-right',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[RIGHT_IN[0], RIGHT_IN[1], 0], [OPEN_X, 0.03, 0], [OPEN_X, -0.03, 0]]),
+        polygonUV: uvPoly([
+          [RIGHT_IN[0], 0.055, 0],
+          [SIDE_X, 0.06, 0],
+          [SIDE_X, -0.032, 0],
+          [RIGHT_IN[0], -0.032, 0],
+        ]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -893,7 +879,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-wing-left',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[-SIDE_X, 0.05, 0], [-OPEN_X, 0.04, 0], [-OPEN_X, -0.02, 0], [-SIDE_X, -0.02, 0]]),
+        polygonUV: uvPoly([[-SIDE_X, 0.04, 0], WL, [-SIDE_X, -0.03, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -921,7 +907,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-wing-right',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[SIDE_X, 0.05, 0], [OPEN_X, 0.04, 0], [OPEN_X, -0.02, 0], [SIDE_X, -0.02, 0]]),
+        polygonUV: uvPoly([[SIDE_X, 0.04, 0], WR, [SIDE_X, -0.03, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
