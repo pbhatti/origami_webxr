@@ -16,18 +16,6 @@ const CARD_GRADIENTS: Record<AnimalId, readonly [string, string]> = {
   dinosaur: ['#fff6e8', '#ffd19a'],
   ladybug: ['#fff1ea', '#ffb199'],
   penguin: ['#e7f7ff', '#c9f4f6'],
-  bird: ['#f8f4ef', '#eadfd4'],
-  swan: ['#fff7f1', '#f0dcc8'],
-  crane: ['#f6f1ec', '#e8dcd0'],
-  frog: ['#f3f0ea', '#e5ddd2'],
-  boat: ['#f7f4f0', '#e6dcd2'],
-  cat: ['#fff5ee', '#f0d5c4'],
-  dog: ['#f6f1eb', '#e6d9cc'],
-  horse: ['#f4eee8', '#e3d4c6'],
-  'dog-sitting': ['#f8f4ef', '#e8dccf'],
-  mouse: ['#f7f2ee', '#e9dfd6'],
-  'cat-sitting': ['#fff6f1', '#efe0d4'],
-  'dog-standing': ['#f5f0ea', '#e4d6c8'],
 };
 
 const textures = new Map<string, CanvasTexture>();

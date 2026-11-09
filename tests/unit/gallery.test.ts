@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ANIMALS, GALLERY_COLUMNS, GALLERY_ROWS, GALLERY_VISIBLE_ROWS, galleryRowCount, playableAnimals } from '../../src/gallery/animals.ts';
-import { COMING_SOON_MESSAGE, routeAnimal } from '../../src/gallery/ExperienceRouter.ts';
+import { routeAnimal } from '../../src/gallery/ExperienceRouter.ts';
 import { COPY } from '../../src/ui/welcomeCopy.ts';
 import { createFloatAnimation } from '../../src/gallery/FloatingAnimationController.ts';
 import { origamiModels } from '../../src/gallery/OrigamiModelRegistry.ts';
@@ -16,7 +16,7 @@ import { PENGUIN_PAPER_COLOR } from '../../src/origami/recipes/penguin.recipe.ts
 
 describe('origami animals gallery', () => {
   it('lists creations with Whale, Fox, and Bat as the playable set', () => {
-    expect(ANIMALS).toHaveLength(20);
+    expect(ANIMALS).toHaveLength(8);
     expect(GALLERY_COLUMNS).toBe(4);
     expect(ANIMALS.map((animal) => animal.name)).toEqual([
       'Whale',
@@ -27,18 +27,6 @@ describe('origami animals gallery', () => {
       'Dinosaur',
       'Ladybug',
       'Penguin',
-      'Crane',
-      'Boat',
-      'Bird',
-      'Frog',
-      'Cat',
-      'Dog',
-      'Horse',
-      'Dog (Sitting)',
-      'Mouse',
-      'Swan',
-      'Cat (Sitting)',
-      'Dog (Standing)',
     ]);
     const firstRow = ANIMALS.filter((animal) => animal.row === 0)
       .sort((a, b) => a.column - b.column)
@@ -77,7 +65,6 @@ describe('origami animals gallery', () => {
     expect(ANIMALS.find((animal) => animal.id === 'turtle')).toMatchObject({ row: 1, column: 0, playable: true });
     expect(ANIMALS.find((animal) => animal.id === 'dinosaur')?.paperColor).toBe(DINOSAUR_PAPER_COLOR);
     expect(ANIMALS.find((animal) => animal.id === 'dinosaur')).toMatchObject({ row: 1, column: 1, playable: true });
-    expect(ANIMALS.find((animal) => animal.id === 'crane')).toMatchObject({ row: 4, column: 3, playable: false });
     expect(ANIMALS.find((animal) => animal.id === 'ladybug')?.paperColor).toBe(LADYBUG_PAPER_COLOR);
     expect(ANIMALS.find((animal) => animal.id === 'ladybug')).toMatchObject({ row: 1, column: 2, playable: true, name: 'Ladybug' });
     expect(ANIMALS.find((animal) => animal.id === 'penguin')?.paperColor).toBe(PENGUIN_PAPER_COLOR);
@@ -85,10 +72,10 @@ describe('origami animals gallery', () => {
     expect(cardGradientFor('penguin')).toEqual({ from: '#e7f7ff', to: '#c9f4f6' });
     expect(ANIMALS.find((animal) => animal.id === 'whale')).toMatchObject({ row: 0, column: 0 });
     expect(ANIMALS.find((animal) => animal.id === 'owl')).toMatchObject({ row: 0, column: 3 });
-    expect(ANIMALS.filter((animal) => !animal.playable)).toHaveLength(12);
+    expect(ANIMALS.filter((animal) => !animal.playable)).toHaveLength(0);
   });
 
-  it('routes whale and fox to launch or resume and other cards to coming soon', () => {
+  it('routes every gallery card to launch or resume', () => {
     expect(routeAnimal('whale', null)).toEqual({ kind: 'launch', id: 'whale' });
     expect(routeAnimal('whale', 'whale')).toEqual({ kind: 'resume', id: 'whale' });
     expect(routeAnimal('fox', null)).toEqual({ kind: 'launch', id: 'fox' });
@@ -105,11 +92,7 @@ describe('origami animals gallery', () => {
     expect(routeAnimal('dinosaur', 'turtle')).toEqual({ kind: 'launch', id: 'dinosaur' });
     expect(routeAnimal('ladybug', null)).toEqual({ kind: 'launch', id: 'ladybug' });
     expect(routeAnimal('ladybug', 'dinosaur')).toEqual({ kind: 'launch', id: 'ladybug' });
-    expect(routeAnimal('crane', null)).toEqual({
-      kind: 'coming-soon',
-      id: 'crane',
-      message: COMING_SOON_MESSAGE,
-    });
+    expect(routeAnimal('penguin', null)).toEqual({ kind: 'launch', id: 'penguin' });
     expect(routeAnimal('unknown', null)).toBeNull();
     expect(COPY.gallery.foldNow).toBe('Fold Now');
     expect(COPY.gallery.comingSoon).toBe('Coming Soon');
@@ -151,8 +134,8 @@ describe('origami animals gallery', () => {
     const amplitudes = new Set(animations.map((animation) => animation.amplitude.toFixed(4)));
     const frequencies = new Set(animations.map((animation) => animation.frequency.toFixed(4)));
     expect(phases.size).toBe(ANIMALS.length);
-    expect(amplitudes.size).toBeGreaterThan(8);
-    expect(frequencies.size).toBeGreaterThan(8);
+    expect(amplitudes.size).toBeGreaterThan(4);
+    expect(frequencies.size).toBeGreaterThan(4);
     for (const animation of animations) {
       expect(animation.amplitude).toBeGreaterThanOrEqual(0.003);
       expect(animation.amplitude).toBeLessThanOrEqual(0.008);

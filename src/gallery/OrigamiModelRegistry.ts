@@ -164,36 +164,6 @@ function fit(group: Group, span = 0.078): Group {
   return group;
 }
 
-function poly(color: string, layers: Tris[]): Group {
-  const vertices: MeshSnapshot['vertices'] = [];
-  const faces: MeshSnapshot['faces'] = [];
-  layers.forEach((tris, layer) => {
-    for (let index = 0; index + 8 < tris.length; index += 9) {
-      const base = vertices.length;
-      vertices.push(
-        [tris[index] ?? 0, tris[index + 1] ?? 0, tris[index + 2] ?? 0],
-        [tris[index + 3] ?? 0, tris[index + 4] ?? 0, tris[index + 5] ?? 0],
-        [tris[index + 6] ?? 0, tris[index + 7] ?? 0, tris[index + 8] ?? 0],
-      );
-      faces.push({ id: `poly-${layer}-${index}`, vertices: [base, base + 1, base + 2], layer, materialId: 'paper' });
-    }
-  });
-  const group = new Group();
-  const built = buildPaperMesh({ vertices, faces }, true);
-  const mesh = paperFromBuilt(built, color);
-  group.add(mesh);
-  const shadow = shadowFromBuilt(built);
-  if (shadow) {
-    shadow.name = 'poly-contact-shadow';
-    group.add(shadow);
-  }
-  return fit(group);
-}
-
-function quad(x0: number, y0: number, x1: number, y1: number, z = 0): Tris {
-  return [x0, y0, z, x1, y0, z, x1, y1, z, x0, y0, z, x1, y1, z, x0, y1, z];
-}
-
 function triangle(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, z = 0): Tris {
   return [ax, ay, z, bx, by, z, cx, cy, z];
 }
@@ -513,96 +483,6 @@ const BUILDERS: Record<AnimalId, (color: string) => Group> = {
   dinosaur: () => dinosaurModel(),
   ladybug: () => ladybugModel(),
   penguin: () => penguinModel(),
-  swan: (color) =>
-    poly(color, [
-      triangle(-0.04, -0.02, 0.04, -0.015, 0.01, 0.02),
-      triangle(0.01, 0.018, 0.03, 0.05, 0.018, 0.022),
-      triangle(0.028, 0.048, 0.042, 0.07, 0.022, 0.05),
-      triangle(0.038, 0.068, 0.055, 0.062, 0.04, 0.055),
-    ]),
-  crane: (color) =>
-    poly(color, [
-      triangle(-0.05, 0.0, 0.05, 0.0, 0, 0.02),
-      triangle(0, 0.02, 0.012, 0.055, -0.012, 0.055),
-      triangle(0.012, 0.05, 0.05, 0.07, 0.008, 0.06),
-      triangle(-0.012, 0.05, -0.008, 0.06, -0.045, 0.068),
-      triangle(-0.01, 0.0, 0.01, 0.0, 0, -0.04),
-    ]),
-  boat: (color) =>
-    poly(color, [
-      triangle(-0.05, -0.01, 0.05, -0.01, 0, 0.02),
-      triangle(-0.035, -0.01, 0.035, -0.01, 0, -0.03),
-      triangle(-0.01, 0.018, 0.01, 0.018, 0, 0.045),
-    ]),
-  bird: (color) =>
-    poly(color, [
-      triangle(-0.055, 0.01, 0, 0.0, -0.01, 0.025),
-      triangle(0.055, 0.01, 0.01, 0.025, 0, 0.0),
-      triangle(-0.01, 0.0, 0.02, 0.01, 0.03, -0.02),
-      triangle(-0.008, 0.02, 0.008, 0.02, 0, 0.045),
-    ]),
-  frog: (color) =>
-    poly(color, [
-      quad(-0.03, -0.01, 0.03, 0.025),
-      triangle(-0.03, -0.01, -0.05, -0.03, -0.012, -0.018),
-      triangle(0.03, -0.01, 0.012, -0.018, 0.05, -0.03),
-      triangle(-0.02, 0.025, 0.02, 0.025, 0, 0.045),
-      triangle(-0.028, 0.02, -0.038, 0.04, -0.018, 0.028),
-    ]),
-  cat: (color) =>
-    poly(color, [
-      triangle(-0.028, -0.02, 0.03, -0.018, 0, 0.028),
-      triangle(-0.02, 0.02, -0.006, 0.028, -0.016, 0.05),
-      triangle(0.006, 0.028, 0.02, 0.02, 0.016, 0.05),
-      triangle(0.02, -0.01, 0.05, 0.0, 0.024, 0.01),
-    ]),
-  dog: (color) =>
-    poly(color, [
-      triangle(-0.03, -0.018, 0.028, -0.016, 0, 0.024),
-      triangle(0.02, 0.01, 0.05, 0.004, 0.026, -0.01),
-      triangle(-0.018, 0.02, -0.004, 0.024, -0.02, 0.045),
-      triangle(0.004, 0.024, 0.018, 0.02, 0.012, 0.04),
-      triangle(-0.01, -0.018, 0.01, -0.016, 0, -0.038),
-    ]),
-  horse: (color) =>
-    poly(color, [
-      triangle(-0.04, -0.02, 0.02, -0.016, -0.01, 0.02),
-      triangle(-0.01, 0.018, 0.02, 0.05, 0.012, 0.016),
-      triangle(0.018, 0.048, 0.042, 0.06, 0.02, 0.03),
-      triangle(-0.03, -0.02, -0.038, -0.045, -0.018, -0.02),
-      triangle(0.01, -0.016, 0.018, -0.042, 0.02, -0.014),
-    ]),
-  'dog-sitting': (color) =>
-    poly(color, [
-      quad(-0.02, -0.03, 0.022, 0.02),
-      triangle(-0.02, 0.018, 0.018, 0.02, 0, 0.045),
-      triangle(0.016, 0.012, 0.045, 0.008, 0.02, -0.01),
-      triangle(-0.012, 0.04, 0, 0.044, -0.008, 0.058),
-      triangle(0.004, 0.044, 0.014, 0.038, 0.01, 0.056),
-    ]),
-  mouse: (color) =>
-    poly(color, [
-      triangle(-0.025, -0.015, 0.03, -0.012, 0, 0.028),
-      triangle(0.022, 0.0, 0.05, 0.01, 0.028, 0.016),
-      triangle(-0.01, 0.022, 0.01, 0.022, 0, 0.04),
-      triangle(-0.03, 0.0, -0.048, 0.03, -0.02, 0.018),
-    ]),
-  'cat-sitting': (color) =>
-    poly(color, [
-      quad(-0.024, -0.028, 0.026, 0.018),
-      triangle(-0.02, 0.016, 0.02, 0.016, 0, 0.04),
-      triangle(-0.016, 0.036, -0.004, 0.04, -0.014, 0.055),
-      triangle(0.004, 0.04, 0.016, 0.034, 0.014, 0.055),
-      triangle(0.02, -0.01, 0.04, -0.004, 0.022, 0.008),
-    ]),
-  'dog-standing': (color) =>
-    poly(color, [
-      triangle(-0.045, -0.01, 0.03, -0.008, -0.01, 0.02),
-      triangle(0.02, 0.008, 0.055, 0.004, 0.028, -0.01),
-      triangle(-0.04, -0.01, -0.048, -0.038, -0.03, -0.012),
-      triangle(0.01, -0.008, 0.018, -0.036, 0.022, -0.006),
-      triangle(-0.02, 0.016, -0.004, 0.02, -0.018, 0.04),
-    ]),
 };
 
 export class OrigamiModelRegistry {

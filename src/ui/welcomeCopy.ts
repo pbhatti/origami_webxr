@@ -60,7 +60,7 @@ export const PRODUCT_TAGLINE = COPY.product.tagline;
 export const PRODUCT_SENTENCE = COPY.product.description;
 
 export const HELP_COPY =
-  'After Enter AR, pinch a gallery card. Whale, Fox, Bat, Owl, Turtle, Dinosaur, Ladybug, and Penguin launch guided folds. Other creations show Coming Soon. Explore returns to the gallery without losing fold progress. Pinch the highlight to fold. Pinch Move to reposition the sheet. Debug + A assists. Debug + G toggles the gallery.';
+  'After Enter AR, pinch a gallery card. Whale, Fox, Bat, Owl, Turtle, Dinosaur, Ladybug, and Penguin launch guided folds. Explore returns to the gallery without losing fold progress. Pinch the highlight to fold. Pinch Move to reposition the sheet. Debug + A assists. Debug + G toggles the gallery.';
 
 export function completionBodyFor(animalId: string): string {
   if (animalId === 'bat') {
