@@ -771,7 +771,7 @@ export class OrigamiEngine {
     if (pending.length <= 1) {
       return;
     }
-    const hit = hitMovingRegion(local, PAPER_SIZE_M, pending.map((step) => step.movingRegion));
+    const hit = hitMovingRegion(local, PAPER_SIZE_M, [...pending].reverse().map((step) => step.movingRegion));
     const match = pending.find((step) => step.movingRegion.id === hit?.id);
     if (!match) {
       return;

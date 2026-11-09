@@ -22,8 +22,12 @@ const R = PENGUIN_R;
  */
 export const PENGUIN_BOTTOM_CREASE_FRAC = -0.22;
 export const PENGUIN_LOWER_CREASE_FRAC = 0.32;
-export const PENGUIN_SIDE_FRAC = 0.55;
-export const PENGUIN_OPEN_FRAC = 0.42;
+/**
+ * How far each folded side tip crosses the centerline, as a fraction of R.
+ * The crease is the perpendicular bisector between the side point and that landing.
+ */
+export const PENGUIN_SIDE_OVERLAP_FRAC = 0.1;
+export const PENGUIN_SIDE_FRAC = (1 - PENGUIN_SIDE_OVERLAP_FRAC) / 2;
 export const PENGUIN_BEAK_FRAC = 0.78;
 
 const L: Vec3 = [-R, 0, 0];
@@ -45,7 +49,8 @@ const P3L: Vec3 = [-X3, Y3, 0];
 const P3R: Vec3 = [X3, Y3, 0];
 
 const SIDE_X = PENGUIN_SIDE_FRAC * R;
-const OPEN_X = PENGUIN_OPEN_FRAC * R;
+/** Where the vertical crease meets the diamond edge, in paper space. */
+const SIDE_SHOULDER = (1 - PENGUIN_SIDE_FRAC) * R;
 const BEAK_Y = PENGUIN_BEAK_FRAC * R;
 
 export const PENGUIN_STEPS = [
@@ -413,31 +418,13 @@ function peelLayer(snapshot: MeshSnapshot, layer: number, p0: Vec3, p1: Vec3): M
   };
 }
 
-/** Layers that belong only to one folded side, not the shared body. */
-function sideFlapLayers(snapshot: MeshSnapshot, sign: -1 | 1): number[] {
-  const stats = new Map<number, { onSide: number; total: number }>();
-  for (const face of snapshot.faces) {
-    const points = face.vertices.flatMap((index) => {
-      const point = snapshot.vertices[index];
-      return point ? [point] : [];
-    });
-    if (points.length < 3) {
-      continue;
-    }
-    const cx = points.reduce((sum, point) => sum + point[0], 0) / points.length;
-    const stat = stats.get(face.layer) ?? { onSide: 0, total: 0 };
-    stat.total += 1;
-    if (sign * cx > OPEN_X * 0.2) {
-      stat.onSide += 1;
-    }
-    stats.set(face.layer, stat);
+function layerSpan(min: number, max: number): number[] {
+  const layers: number[] = [];
+  for (let layer = min; layer <= max; layer += 1) {
+    layers.push(layer);
   }
-  const layers = [...stats.entries()]
-    .filter(([, stat]) => stat.total >= 4 && stat.onSide / stat.total >= 0.85)
-    .map(([layer]) => layer)
-    .sort((left, right) => left - right);
   if (layers.length === 0) {
-    throw new Error(`penguin ${sign < 0 ? 'left' : 'right'} flap is missing`);
+    throw new Error('penguin flap is missing');
   }
   return layers;
 }
@@ -471,20 +458,20 @@ function reverseBlueFaces(snapshot: MeshSnapshot, layers: Set<number>): MeshSnap
   };
 }
 
-const LEFT_FLAP_LAYERS = sideFlapLayers(sided.snapshot, -1);
-const RIGHT_FLAP_LAYERS = sideFlapLayers(sided.snapshot, 1);
+const LEFT_FLAP_LAYERS = layerSpan(sideLeft.minLayer, sideLeft.maxLayer);
+const RIGHT_FLAP_LAYERS = layerSpan(sided.minLayer, sided.maxLayer);
 /** Halfway from the side crease to the folded tip. Only this half of the flap opens. */
 const LEFT_HALF_X = (-SIDE_X + LEFT_IN[0]) / 2;
 const RIGHT_HALF_X = (SIDE_X + RIGHT_IN[0]) / 2;
-const FLAP_CREASE_Y0 = -0.032;
-const FLAP_CREASE_Y1 = 0.064;
+/** Height of the dotted crease where the triangular flap is half way to its tip. */
+const FLAP_CREASE_Y = SIDE_SHOULDER / 2;
 const LEFT_HALF_LINE: [Vec3, Vec3] = [
-  [LEFT_HALF_X, FLAP_CREASE_Y0, 0],
-  [LEFT_HALF_X, FLAP_CREASE_Y1, 0],
+  [LEFT_HALF_X, -FLAP_CREASE_Y, 0],
+  [LEFT_HALF_X, FLAP_CREASE_Y, 0],
 ];
 const RIGHT_HALF_LINE: [Vec3, Vec3] = [
-  [RIGHT_HALF_X, FLAP_CREASE_Y1, 0],
-  [RIGHT_HALF_X, FLAP_CREASE_Y0, 0],
+  [RIGHT_HALF_X, FLAP_CREASE_Y, 0],
+  [RIGHT_HALF_X, -FLAP_CREASE_Y, 0],
 ];
 
 /** Free the inner half so it can turn on the halfway crease while the outer half stays attached. */
@@ -982,7 +969,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-side-left',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[-R, 0, 0], [-SIDE_X, 0.04, 0], [-SIDE_X, -0.04, 0]]),
+        polygonUV: uvPoly([[-R, 0, 0], [-SIDE_X, SIDE_SHOULDER, 0], [-SIDE_X, -SIDE_SHOULDER, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -1010,7 +997,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-side-right',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[R, 0, 0], [SIDE_X, 0.04, 0], [SIDE_X, -0.04, 0]]),
+        polygonUV: uvPoly([[R, 0, 0], [SIDE_X, SIDE_SHOULDER, 0], [SIDE_X, -SIDE_SHOULDER, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -1039,10 +1026,9 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
         id: 'moving-flap-left',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
         polygonUV: uvPoly([
-          [LEFT_HALF_X, FLAP_CREASE_Y1, 0],
-          [LEFT_IN[0], FLAP_CREASE_Y1, 0],
-          [LEFT_IN[0], FLAP_CREASE_Y0, 0],
-          [LEFT_HALF_X, FLAP_CREASE_Y0, 0],
+          [LEFT_HALF_X, FLAP_CREASE_Y, 0],
+          [LEFT_IN[0], LEFT_IN[1], 0],
+          [LEFT_HALF_X, -FLAP_CREASE_Y, 0],
         ]),
         allowedHands: 'either',
       },
@@ -1072,10 +1058,9 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
         id: 'moving-flap-right',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
         polygonUV: uvPoly([
-          [RIGHT_HALF_X, FLAP_CREASE_Y1, 0],
-          [RIGHT_IN[0], FLAP_CREASE_Y1, 0],
-          [RIGHT_IN[0], FLAP_CREASE_Y0, 0],
-          [RIGHT_HALF_X, FLAP_CREASE_Y0, 0],
+          [RIGHT_HALF_X, FLAP_CREASE_Y, 0],
+          [RIGHT_IN[0], RIGHT_IN[1], 0],
+          [RIGHT_HALF_X, -FLAP_CREASE_Y, 0],
         ]),
         allowedHands: 'either',
       },
@@ -1104,7 +1089,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-wing-left',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[-SIDE_X, 0.04, 0], WL, [-SIDE_X, -0.03, 0]]),
+        polygonUV: uvPoly([[-SIDE_X, FLAP_CREASE_Y, 0], WL, [-SIDE_X, -FLAP_CREASE_Y, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -1132,7 +1117,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-wing-right',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[SIDE_X, 0.04, 0], WR, [SIDE_X, -0.03, 0]]),
+        polygonUV: uvPoly([[SIDE_X, FLAP_CREASE_Y, 0], WR, [SIDE_X, -FLAP_CREASE_Y, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,

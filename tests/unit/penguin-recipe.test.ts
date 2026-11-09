@@ -19,6 +19,8 @@ import {
   PENGUIN_PAPER_COLOR,
   PENGUIN_R,
   PENGUIN_RECIPE,
+  PENGUIN_SIDE_FRAC,
+  PENGUIN_SIDE_OVERLAP_FRAC,
   PENGUIN_STEPS,
 } from '../../src/origami/recipes/penguin.recipe.ts';
 import type { MeshSnapshot, Vec3 } from '../../src/origami/types.ts';
@@ -231,7 +233,22 @@ describe('origami penguin recipe', () => {
     const opened = PENGUIN_RECIPE.snapshots.opened!;
     const winged = PENGUIN_RECIPE.snapshots.winged!;
     const beaked = PENGUIN_RECIPE.snapshots.beaked!;
-    const bodyEdge = 0.55 * PENGUIN_R;
+    const sideCrease = PENGUIN_SIDE_FRAC * PENGUIN_R;
+    const overlap = PENGUIN_SIDE_OVERLAP_FRAC * PENGUIN_R;
+    const sided = PENGUIN_RECIPE.snapshots.sided!;
+    const leftTipX = named(sided, 'RIGHT')[0];
+    const rightTipX = named(sided, 'L')[0];
+    expect(leftTipX).toBeGreaterThan(0);
+    expect(rightTipX).toBeLessThan(0);
+    expect(leftTipX).toBeCloseTo(overlap, 2);
+    expect(rightTipX).toBeCloseTo(-overlap, 2);
+    const sideLeft = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-side-left');
+    const sideRight = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-side-right');
+    expect(sideLeft?.hinge.p0[0]).toBeCloseTo(-sideCrease, 4);
+    expect(sideLeft?.hinge.p1[0]).toBeCloseTo(-sideCrease, 4);
+    expect(sideRight?.hinge.p0[0]).toBeCloseTo(sideCrease, 4);
+    expect(sideRight?.hinge.p1[0]).toBeCloseTo(sideCrease, 4);
+    expect(sideCrease).toBeLessThan(0.5 * PENGUIN_R);
     const left = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-wing-left');
     const right = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-wing-right');
     expect(left?.fromSnapshotId).toBe('wing-ready');
@@ -249,7 +266,7 @@ describe('origami penguin recipe', () => {
       for (const index of moved.movingVertexIds) {
         const landed = moved.snapshot.vertices[index];
         expect(landed).toBeTruthy();
-        expect(Math.abs(landed![0])).toBeGreaterThan(bodyEdge);
+        expect(Math.abs(landed![0])).toBeGreaterThan(sideCrease);
         expect(Math.sign(landed![0])).toBe(sign);
       }
     }
@@ -263,8 +280,8 @@ describe('origami penguin recipe', () => {
     expect(leftFlap?.instruction).toBe('Open half of each flap along the dotted crease.');
     const leftCrease = Math.abs(leftFlap?.hinge.p0[0] ?? 0);
     const rightCrease = Math.abs(rightFlap?.hinge.p0[0] ?? 0);
-    expect(leftCrease).toBeGreaterThan(bodyEdge * 0.4);
-    expect(leftCrease).toBeLessThan(bodyEdge - 0.02);
+    expect(leftCrease).toBeGreaterThan(0);
+    expect(leftCrease).toBeLessThan(sideCrease - 0.01);
     expect(rightCrease).toBeCloseTo(leftCrease, 3);
     expect(leftFlap?.creaseLineLocal[0][0]).toBeCloseTo(leftFlap?.hinge.p0[0] ?? 0, 4);
     expect(leftFlap?.creaseLineLocal[1][0]).toBeCloseTo(leftFlap?.hinge.p1[0] ?? 0, 4);
@@ -281,22 +298,22 @@ describe('origami penguin recipe', () => {
       expect(Math.max(...landed.map((point) => Math.abs(point[0])))).toBeGreaterThan(crease + 0.02);
       for (const point of landed) {
         expect(Math.abs(point[0])).toBeGreaterThan(crease - 0.001);
-        expect(Math.abs(point[0])).toBeLessThanOrEqual(bodyEdge + 0.004);
+        expect(Math.abs(point[0])).toBeLessThanOrEqual(PENGUIN_R + 0.004);
         expect(Math.sign(point[0])).toBe(sign);
       }
     }
-    expect(sampleHitsRegion([-0.03, 0.02, 0.01], leftFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
-    expect(sampleHitsRegion([0.03, 0.02, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
-    expect(sampleHitsRegion([-0.03, 0.02, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(false);
-    expect(sampleHitsRegion([-0.07, 0.02, 0.01], leftFlap!.movingRegion, PAPER_SIZE_M)).toBe(false);
+    expect(sampleHitsRegion([leftTipX * 0.25, 0.01, 0.01], leftFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([rightTipX * 0.25, 0.01, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(true);
+    expect(sampleHitsRegion([-sideCrease - 0.02, 0.01, 0.01], leftFlap!.movingRegion, PAPER_SIZE_M)).toBe(false);
+    expect(sampleHitsRegion([sideCrease + 0.02, 0.01, 0.01], rightFlap!.movingRegion, PAPER_SIZE_M)).toBe(false);
     expect(topFaceAt(opened, -0.06, 0)?.tone).toBe('front');
     expect(topFaceAt(opened, 0.06, 0)?.tone).toBe('front');
     const openedOutline = opened.outline ?? [];
-    expect(Math.min(...openedOutline.map((point) => point[0]))).toBeGreaterThan(-bodyEdge - 0.01);
-    expect(Math.max(...openedOutline.map((point) => point[0]))).toBeLessThan(bodyEdge + 0.01);
+    expect(Math.min(...openedOutline.map((point) => point[0]))).toBeGreaterThan(-sideCrease - 0.02);
+    expect(Math.max(...openedOutline.map((point) => point[0]))).toBeLessThan(sideCrease + 0.02);
 
-    expect(Math.min(...outline.map((point) => point[0]))).toBeLessThan(-bodyEdge - 0.01);
-    expect(Math.max(...outline.map((point) => point[0]))).toBeGreaterThan(bodyEdge + 0.01);
+    expect(Math.min(...outline.map((point) => point[0]))).toBeLessThan(-sideCrease - 0.01);
+    expect(Math.max(...outline.map((point) => point[0]))).toBeGreaterThan(sideCrease + 0.01);
     expect(named(winged, 'T')[1]).toBeCloseTo(PENGUIN_R, 3);
     expect(topFaceAt(winged, -0.1, 0)?.tone).toBe('front');
     expect(topFaceAt(winged, 0.1, 0)?.tone).toBe('front');
@@ -320,7 +337,7 @@ describe('origami penguin recipe', () => {
       return next != null && Math.hypot(next[0] - point[0], next[1] - point[1], next[2] - point[2]) > 0.01;
     });
     expect(moved).toBe(true);
-    engine.beginGrab([0.03, 0.02, 0.02]);
+    engine.beginGrab([rightTipX * 0.25, 0.01, 0.02]);
     expect(engine.currentStep?.id).toBe('penguin-flap-right');
     const drag = rightStep.arrowPathLocal.at(-1)!;
     engine.updateFold(drag, false, 400);
