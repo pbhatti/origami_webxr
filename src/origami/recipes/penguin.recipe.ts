@@ -28,6 +28,14 @@ export const PENGUIN_LOWER_CREASE_FRAC = 0.32;
  */
 export const PENGUIN_SIDE_OVERLAP_FRAC = 0.1;
 export const PENGUIN_SIDE_FRAC = (1 - PENGUIN_SIDE_OVERLAP_FRAC) / 2;
+/**
+ * Secondary wing crease, as a fraction of the way from the folded tip to the
+ * Step 5 side crease. Near 1 puts the hinge by the outer edge, so the opened
+ * tip lands beyond the body. This is not the Step 5 crease.
+ */
+export const PENGUIN_WING_OPEN_FRAC = 0.88;
+/** How far along the opened wing the Step 7 tip crease sits. The root stays put. */
+export const PENGUIN_WING_TIP_FRAC = 0.72;
 export const PENGUIN_BEAK_FRAC = 0.78;
 
 const L: Vec3 = [-R, 0, 0];
@@ -71,8 +79,8 @@ const STAGE_TITLE = [
   'Shape the lower body',
   'Flip the paper',
   'Fold both sides inward',
-  'Open half the flaps',
-  'Shape the wings',
+  'Spread both wings',
+  'Shape the wing tips',
   'Shape the beak',
   'Bring it to life',
 ] as const;
@@ -83,8 +91,8 @@ const STAGE_INSTRUCTION = [
   'Fold the center tip downward.',
   'Rotate the paper 180° to reveal its reverse side.',
   'Fold the left and right sides toward the center.',
-  'Open half of each flap along the dotted crease.',
-  'Fold the wings outward.',
+  'Fold both flaps outward past the body.',
+  'Fold the wing tips along the outer crease.',
   'Fold the top tip downward to create the beak.',
   'Pinch to bring your penguin to life!',
 ] as const;
@@ -460,21 +468,24 @@ function reverseBlueFaces(snapshot: MeshSnapshot, layers: Set<number>): MeshSnap
 
 const LEFT_FLAP_LAYERS = layerSpan(sideLeft.minLayer, sideLeft.maxLayer);
 const RIGHT_FLAP_LAYERS = layerSpan(sided.minLayer, sided.maxLayer);
-/** Halfway from the side crease to the folded tip. Only this half of the flap opens. */
-const LEFT_HALF_X = (-SIDE_X + LEFT_IN[0]) / 2;
-const RIGHT_HALF_X = (SIDE_X + RIGHT_IN[0]) / 2;
-/** Height of the dotted crease where the triangular flap is half way to its tip. */
-const FLAP_CREASE_Y = SIDE_SHOULDER / 2;
-const LEFT_HALF_LINE: [Vec3, Vec3] = [
-  [LEFT_HALF_X, -FLAP_CREASE_Y, 0],
-  [LEFT_HALF_X, FLAP_CREASE_Y, 0],
+/**
+ * Secondary crease, closer to the Step 5 edge than to the center.
+ * Reflecting the crossed tip across it carries the wing past the body.
+ */
+const LEFT_OPEN_X = LEFT_IN[0] + (-SIDE_X - LEFT_IN[0]) * PENGUIN_WING_OPEN_FRAC;
+const RIGHT_OPEN_X = RIGHT_IN[0] + (SIDE_X - RIGHT_IN[0]) * PENGUIN_WING_OPEN_FRAC;
+/** Height of the dotted crease where it meets the triangular flap. */
+const FLAP_CREASE_Y = SIDE_SHOULDER * PENGUIN_WING_OPEN_FRAC;
+const LEFT_OPEN_LINE: [Vec3, Vec3] = [
+  [LEFT_OPEN_X, -FLAP_CREASE_Y, 0],
+  [LEFT_OPEN_X, FLAP_CREASE_Y, 0],
 ];
-const RIGHT_HALF_LINE: [Vec3, Vec3] = [
-  [RIGHT_HALF_X, FLAP_CREASE_Y, 0],
-  [RIGHT_HALF_X, -FLAP_CREASE_Y, 0],
+const RIGHT_OPEN_LINE: [Vec3, Vec3] = [
+  [RIGHT_OPEN_X, FLAP_CREASE_Y, 0],
+  [RIGHT_OPEN_X, -FLAP_CREASE_Y, 0],
 ];
 
-/** Free the inner half so it can turn on the halfway crease while the outer half stays attached. */
+/** Free the tip side so it can turn on the outer crease while the body edge stays attached. */
 function peelInnerHalf(snapshot: MeshSnapshot, layers: number[], hingeX: number, tipX: number): MeshSnapshot {
   const layerSet = new Set(layers);
   const dir = Math.sign(tipX - hingeX) || 1;
@@ -560,41 +571,41 @@ function reverseInnerHalf(snapshot: MeshSnapshot, layers: number[], hingeX: numb
 }
 
 const peeledFlaps = peelInnerHalf(
-  peelInnerHalf(sided.snapshot, LEFT_FLAP_LAYERS, LEFT_HALF_X, LEFT_IN[0]),
+  peelInnerHalf(sided.snapshot, LEFT_FLAP_LAYERS, LEFT_OPEN_X, LEFT_IN[0]),
   RIGHT_FLAP_LAYERS,
-  RIGHT_HALF_X,
+  RIGHT_OPEN_X,
   RIGHT_IN[0],
 );
 const flapReady = pose(
   reverseInnerHalf(
-    reverseInnerHalf(peeledFlaps, LEFT_FLAP_LAYERS, LEFT_HALF_X, LEFT_IN[0]),
+    reverseInnerHalf(peeledFlaps, LEFT_FLAP_LAYERS, LEFT_OPEN_X, LEFT_IN[0]),
     RIGHT_FLAP_LAYERS,
-    RIGHT_HALF_X,
+    RIGHT_OPEN_X,
     RIGHT_IN[0],
   ),
   sided.snapshot.named ?? {},
 );
-const HALF_REACH = Math.abs(LEFT_IN[0] - LEFT_HALF_X) + 0.008;
+const OPEN_REACH = Math.abs(LEFT_IN[0] - LEFT_OPEN_X) + 0.008;
 const HINGE_OPEN_L = hingeOf(
   'penguin-flap-left',
-  LEFT_HALF_LINE[0],
-  LEFT_HALF_LINE[1],
+  LEFT_OPEN_LINE[0],
+  LEFT_OPEN_LINE[1],
   [LEFT_IN[0], LEFT_IN[1], 0],
   {
     minMovingLayer: Math.min(...LEFT_FLAP_LAYERS),
     maxMovingLayer: Math.max(...LEFT_FLAP_LAYERS),
-    reachM: HALF_REACH,
+    reachM: OPEN_REACH,
   },
 );
 const HINGE_OPEN_R = hingeOf(
   'penguin-flap-right',
-  RIGHT_HALF_LINE[0],
-  RIGHT_HALF_LINE[1],
+  RIGHT_OPEN_LINE[0],
+  RIGHT_OPEN_LINE[1],
   [RIGHT_IN[0], RIGHT_IN[1], 0],
   {
     minMovingLayer: Math.min(...RIGHT_FLAP_LAYERS),
     maxMovingLayer: Math.max(...RIGHT_FLAP_LAYERS),
-    reachM: HALF_REACH,
+    reachM: OPEN_REACH,
   },
 );
 const LEFT_OUT = landmarkAfterHinge([LEFT_IN[0], LEFT_IN[1], 0], HINGE_OPEN_L, 180, 'valley');
@@ -634,8 +645,6 @@ const openedFold = foldStacked(openLeft.snapshot, HINGE_OPEN_R, [RIGHT_IN[0], RI
 });
 const opened = { ...openedFold, snapshot: showBlue(openedFold.snapshot, openLeft.minLayer) };
 
-const wingReady = pose(opened.snapshot, { ...opened.snapshot.named });
-
 function layersOutside(snapshot: MeshSnapshot, hingeX: number, sign: -1 | 1, minLayer: number): number[] {
   const layers = new Set<number>();
   for (const face of snapshot.faces) {
@@ -649,8 +658,8 @@ function layersOutside(snapshot: MeshSnapshot, hingeX: number, sign: -1 | 1, min
     if (points.length < 3) {
       continue;
     }
-    const cx = points.reduce((sum, point) => sum + point[0], 0) / points.length;
-    if (sign * cx > sign * hingeX + 0.002) {
+    const outside = points.some((point) => sign * point[0] > sign * hingeX + 0.002);
+    if (outside) {
       layers.add(face.layer);
     }
   }
@@ -660,12 +669,23 @@ function layersOutside(snapshot: MeshSnapshot, hingeX: number, sign: -1 | 1, min
   return [...layers];
 }
 
-const LEFT_WING_LAYERS = layersOutside(wingReady, LEFT_HALF_X, -1, openLeft.minLayer);
-const RIGHT_WING_LAYERS = layersOutside(wingReady, RIGHT_HALF_X, 1, opened.minLayer);
-const WL: Vec3 = [LEFT_HALF_X, 0, 0];
-const WR: Vec3 = [RIGHT_HALF_X, 0, 0];
-const LEFT_WING_LINE: [Vec3, Vec3] = [[-SIDE_X, -R, 0], [-SIDE_X, R, 0]];
-const RIGHT_WING_LINE: [Vec3, Vec3] = [[SIDE_X, R, 0], [SIDE_X, -R, 0]];
+const WL: Vec3 = [LEFT_OUT[0], LEFT_OUT[1], 0];
+const WR: Vec3 = [RIGHT_OUT[0], RIGHT_OUT[1], 0];
+/** Tip crease on the wing that Step 6 already extended. The root behind it stays. */
+const LEFT_SHAPE_X = LEFT_OPEN_X + (LEFT_OUT[0] - LEFT_OPEN_X) * PENGUIN_WING_TIP_FRAC;
+const RIGHT_SHAPE_X = RIGHT_OPEN_X + (RIGHT_OUT[0] - RIGHT_OPEN_X) * PENGUIN_WING_TIP_FRAC;
+const SHAPE_Y = FLAP_CREASE_Y * (1 - PENGUIN_WING_TIP_FRAC);
+const wingReady = pose(opened.snapshot, { ...opened.snapshot.named, WL, WR });
+const LEFT_WING_LAYERS = layersOutside(wingReady, LEFT_SHAPE_X, -1, openLeft.minLayer);
+const RIGHT_WING_LAYERS = layersOutside(wingReady, RIGHT_SHAPE_X, 1, opened.minLayer);
+const LEFT_WING_LINE: [Vec3, Vec3] = [
+  [LEFT_SHAPE_X, -SHAPE_Y, 0],
+  [LEFT_SHAPE_X, SHAPE_Y, 0],
+];
+const RIGHT_WING_LINE: [Vec3, Vec3] = [
+  [RIGHT_SHAPE_X, SHAPE_Y, 0],
+  [RIGHT_SHAPE_X, -SHAPE_Y, 0],
+];
 const peeledWings = pose(
   reverseBlueFaces(
     peelLayers(
@@ -681,12 +701,12 @@ const peeledWings = pose(
 const HINGE_WING_L = hingeOf('penguin-wing-left', LEFT_WING_LINE[0], LEFT_WING_LINE[1], WL, {
   minMovingLayer: Math.min(...LEFT_WING_LAYERS),
   maxMovingLayer: Math.max(...LEFT_WING_LAYERS),
-  reachM: Math.abs(WL[0] + SIDE_X) + 0.012,
+  reachM: Math.abs(WL[0] - LEFT_SHAPE_X) + 0.012,
 });
 const HINGE_WING_R = hingeOf('penguin-wing-right', RIGHT_WING_LINE[0], RIGHT_WING_LINE[1], WR, {
   minMovingLayer: Math.min(...RIGHT_WING_LAYERS),
   maxMovingLayer: Math.max(...RIGHT_WING_LAYERS),
-  reachM: Math.abs(WR[0] - SIDE_X) + 0.012,
+  reachM: Math.abs(WR[0] - RIGHT_SHAPE_X) + 0.012,
 });
 const LEFT_WING = landmarkAfterHinge(WL, HINGE_WING_L, 180, 'valley');
 const RIGHT_WING = landmarkAfterHinge(WR, HINGE_WING_R, 180, 'valley');
@@ -1026,9 +1046,9 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
         id: 'moving-flap-left',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
         polygonUV: uvPoly([
-          [LEFT_HALF_X, FLAP_CREASE_Y, 0],
+          [LEFT_OPEN_X, FLAP_CREASE_Y, 0],
           [LEFT_IN[0], LEFT_IN[1], 0],
-          [LEFT_HALF_X, -FLAP_CREASE_Y, 0],
+          [LEFT_OPEN_X, -FLAP_CREASE_Y, 0],
         ]),
         allowedHands: 'either',
       },
@@ -1041,7 +1061,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       lockCreaseIds: ['penguin-flap-left'],
       meshStrategy: 'hinge',
       parallelGroup: 'penguin-flaps',
-      validationNotes: 'Step 6 left. The dotted crease is halfway across the flap. Only that half opens.',
+      validationNotes: 'Step 6 left. The outer crease swings the flap past the body. The Step 5 fold stays put.',
     }),
     step({
       id: 'penguin-flap-right',
@@ -1058,9 +1078,9 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
         id: 'moving-flap-right',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
         polygonUV: uvPoly([
-          [RIGHT_HALF_X, FLAP_CREASE_Y, 0],
+          [RIGHT_OPEN_X, FLAP_CREASE_Y, 0],
           [RIGHT_IN[0], RIGHT_IN[1], 0],
-          [RIGHT_HALF_X, -FLAP_CREASE_Y, 0],
+          [RIGHT_OPEN_X, -FLAP_CREASE_Y, 0],
         ]),
         allowedHands: 'either',
       },
@@ -1073,7 +1093,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       lockCreaseIds: ['penguin-flap-right'],
       meshStrategy: 'hinge',
       parallelGroup: 'penguin-flaps',
-      validationNotes: 'Step 6 right. Both halves open along their dotted creases before the wings are shaped.',
+      validationNotes: 'Step 6 right. Both wings pass the body edge before the tips are shaped.',
     }),
     step({
       id: 'penguin-wing-left',
@@ -1089,7 +1109,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-wing-left',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[-SIDE_X, FLAP_CREASE_Y, 0], WL, [-SIDE_X, -FLAP_CREASE_Y, 0]]),
+        polygonUV: uvPoly([[LEFT_SHAPE_X, SHAPE_Y, 0], WL, [LEFT_SHAPE_X, -SHAPE_Y, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -1101,7 +1121,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       lockCreaseIds: ['penguin-wing-left'],
       meshStrategy: 'hinge',
       parallelGroup: 'penguin-wings',
-      validationNotes: 'Step 7 left. The inward side flap swings out on the side crease and stays attached.',
+      validationNotes: 'Step 7 left. Only the extended tip turns. The wing root stays beyond the body.',
     }),
     step({
       id: 'penguin-wing-right',
@@ -1117,7 +1137,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       movingRegion: {
         id: 'moving-wing-right',
         faceIds: ['top-left', 'bot-left', 'top-right', 'bot-right'],
-        polygonUV: uvPoly([[SIDE_X, FLAP_CREASE_Y, 0], WR, [SIDE_X, -FLAP_CREASE_Y, 0]]),
+        polygonUV: uvPoly([[RIGHT_SHAPE_X, SHAPE_Y, 0], WR, [RIGHT_SHAPE_X, -SHAPE_Y, 0]]),
         allowedHands: 'either',
       },
       startAngleDeg: 0,
@@ -1129,7 +1149,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       lockCreaseIds: ['penguin-wing-right'],
       meshStrategy: 'hinge',
       parallelGroup: 'penguin-wings',
-      validationNotes: 'Step 7 right. Both wings snap before the beak and stay extended.',
+      validationNotes: 'Step 7 right. Both tips snap and the wings stay extended for the beak.',
     }),
     step({
       id: 'penguin-beak',
