@@ -16,6 +16,8 @@ import {
   PENGUIN_BOTTOM_CREASE_FRAC,
   PENGUIN_EDGE_COLOR,
   PENGUIN_EYE_COLOR,
+  PENGUIN_EYE_L,
+  PENGUIN_EYE_R,
   PENGUIN_NAMED,
   PENGUIN_PAPER_COLOR,
   PENGUIN_R,
@@ -480,11 +482,18 @@ describe('origami penguin recipe', () => {
       expect(turned?.layer, face.id).toBe(maxLayer - face.layer);
       expect(turned?.materialId).toBe(face.materialId);
     }
-    const eyeY = PENGUIN_BEAK_FRAC * PENGUIN_R - 0.014;
+    const eyeY = PENGUIN_EYE_L[1];
+    const beakTop = PENGUIN_BEAK_FRAC * PENGUIN_R;
+    const beakCorner = PENGUIN_R - beakTop;
+    expect(PENGUIN_EYE_L[0]).toBeCloseTo(-PENGUIN_EYE_R[0], 6);
+    expect(PENGUIN_EYE_L[1]).toBeCloseTo(PENGUIN_EYE_R[1], 6);
+    expect(PENGUIN_EYE_L[1]).toBeLessThan(beakTop - 0.02);
+    expect(Math.abs(PENGUIN_EYE_L[0])).toBeGreaterThan(beakCorner * 0.6);
+    expect(Math.abs(PENGUIN_EYE_L[0])).toBeLessThan(beakCorner);
     for (const [x, y, tone] of [
       [0, eyeY, 'front'],
-      [0.011, eyeY, 'front'],
-      [-0.011, eyeY, 'front'],
+      [PENGUIN_EYE_L[0], eyeY, 'front'],
+      [PENGUIN_EYE_R[0], eyeY, 'front'],
       [0, 0.06, 'front'],
       [0, 0, 'back'],
       [-0.09, 0, 'front'],

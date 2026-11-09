@@ -620,8 +620,13 @@ const penguin = pose(faced, faced.named ?? {});
 
 export const PENGUIN_BEAK_TIP: Vec3 = [BEAK_TIP[0], BEAK_TIP[1], 0];
 export const PENGUIN_FEATURE_Z = 0.012;
-export const PENGUIN_EYE_L: Vec3 = [-0.011, BEAK_Y - 0.014, PENGUIN_FEATURE_Z];
-export const PENGUIN_EYE_R: Vec3 = [0.011, BEAK_Y - 0.014, PENGUIN_FEATURE_Z];
+/** Beak triangle's upper corners, where the crease meets the head. */
+const BEAK_CORNER_X = R - BEAK_Y;
+/** Below the crown, just above each upper corner of the blue beak. */
+const EYE_X = BEAK_CORNER_X * 0.77;
+const EYE_Y = BEAK_Y - 0.026;
+export const PENGUIN_EYE_L: Vec3 = [-EYE_X, EYE_Y, PENGUIN_FEATURE_Z];
+export const PENGUIN_EYE_R: Vec3 = [EYE_X, EYE_Y, PENGUIN_FEATURE_Z];
 export const PENGUIN_PINCH_AT: Vec3 = [0, 0.01, 0.014];
 export const PENGUIN_NAMED = REST;
 

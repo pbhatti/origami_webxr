@@ -384,10 +384,10 @@ function penguinModel(): Group {
   const pupil = paperMat(PENGUIN_EYE_COLOR);
   const highlight = paperMat(PENGUIN_EYE_HIGHLIGHT);
   for (const at of [PENGUIN_EYE_L, PENGUIN_EYE_R]) {
-    const eye = new Mesh(new CircleGeometry(0.0065, 18), pupil);
-    const glint = new Mesh(new CircleGeometry(0.0022, 12), highlight);
+    const eye = new Mesh(new CircleGeometry(0.008, 18), pupil);
+    const glint = new Mesh(new CircleGeometry(0.0027, 12), highlight);
     eye.position.set(at[0], at[1], PENGUIN_FEATURE_Z);
-    glint.position.set(at[0] + 0.002, at[1] + 0.002, PENGUIN_FEATURE_Z + 0.001);
+    glint.position.set(at[0] + 0.0024, at[1] + 0.0024, PENGUIN_FEATURE_Z + 0.001);
     decor.add(eye, glint);
   }
   frameDecor(snapshot, decor);

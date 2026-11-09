@@ -24,10 +24,10 @@ function mat(color: string, offset: number): MeshStandardMaterial {
 
 function eye(at: readonly [number, number, number]): Group {
   const group = new Group();
-  const pupil = new Mesh(new CircleGeometry(0.008, 24), mat(PENGUIN_EYE_COLOR, -4));
-  const highlight = new Mesh(new CircleGeometry(0.0028, 14), mat(PENGUIN_EYE_HIGHLIGHT, -6));
+  const pupil = new Mesh(new CircleGeometry(0.0098, 24), mat(PENGUIN_EYE_COLOR, -4));
+  const highlight = new Mesh(new CircleGeometry(0.0034, 14), mat(PENGUIN_EYE_HIGHLIGHT, -6));
   pupil.position.set(at[0], at[1], PENGUIN_FEATURE_Z);
-  highlight.position.set(at[0] + 0.002, at[1] + 0.002, PENGUIN_FEATURE_Z + 0.001);
+  highlight.position.set(at[0] + 0.0024, at[1] + 0.0024, PENGUIN_FEATURE_Z + 0.001);
   pupil.renderOrder = 3;
   highlight.renderOrder = 4;
   group.add(pupil, highlight);
