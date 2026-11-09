@@ -83,7 +83,7 @@ function topFaceAt(snapshot: MeshSnapshot, x: number, y: number): { tone: 'front
 describe('origami penguin recipe', () => {
   it('is a valid nine-stage blue penguin', () => {
     expect(validateRecipe(PENGUIN_RECIPE)).toEqual([]);
-    expect(progressFromRecipe(PENGUIN_RECIPE).totalSteps).toBe(9);
+    expect(progressFromRecipe(PENGUIN_RECIPE).totalSteps).toBe(8);
     expect(PENGUIN_STEPS).toEqual([
       'center-creases',
       'bottom-corner',
@@ -91,7 +91,6 @@ describe('origami penguin recipe', () => {
       'flip-paper',
       'sides-inward',
       'side-flaps',
-      'wings',
       'beak',
       'penguin-decoration',
     ]);
@@ -103,7 +102,6 @@ describe('origami penguin recipe', () => {
       'Flip the paper',
       'Fold both sides inward',
       'Spread both wings',
-      'Shape the wing tips',
       'Shape the beak',
       'Bring it to life',
     ]);
@@ -230,9 +228,7 @@ describe('origami penguin recipe', () => {
 
   it('opens both wings past the body and keeps them blue for the beak', () => {
     const flaps = PENGUIN_RECIPE.snapshots['flap-ready']!;
-    const ready = PENGUIN_RECIPE.snapshots['wing-ready']!;
     const opened = PENGUIN_RECIPE.snapshots.opened!;
-    const winged = PENGUIN_RECIPE.snapshots.winged!;
     const beaked = PENGUIN_RECIPE.snapshots.beaked!;
     const sideCrease = PENGUIN_SIDE_FRAC * PENGUIN_R;
     const overlap = PENGUIN_SIDE_OVERLAP_FRAC * PENGUIN_R;
@@ -250,31 +246,10 @@ describe('origami penguin recipe', () => {
     expect(sideRight?.hinge.p0[0]).toBeCloseTo(sideCrease, 4);
     expect(sideRight?.hinge.p1[0]).toBeCloseTo(sideCrease, 4);
     expect(sideCrease).toBeLessThan(0.5 * PENGUIN_R);
-    const left = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-wing-left');
-    const right = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-wing-right');
-    expect(left?.fromSnapshotId).toBe('wing-ready');
-    expect(right?.fromSnapshotId).toBe('wing-ready');
-    expect(left?.progressStage).toBe(7);
-    expect(right?.parallelGroup).toBe('penguin-wings');
-    expect(Math.abs(left?.hinge.p0[0] ?? 0)).toBeGreaterThan(sideCrease + 0.01);
-    expect(left?.hinge.p0[0]).toBeCloseTo(-(right?.hinge.p0[0] ?? 0), 3);
+    expect(PENGUIN_RECIPE.steps.some((step) => step.id === 'penguin-wing-left' || step.id === 'penguin-wing-right')).toBe(false);
+    expect(PENGUIN_RECIPE.steps.some((step) => step.title === 'Shape the wing tips')).toBe(false);
+    expect(PENGUIN_RECIPE.creases?.some((crease) => crease.id.startsWith('penguin-wing'))).toBe(false);
 
-    for (const [step, hint, sign] of [
-      [left, ready.named?.WL, -1],
-      [right, ready.named?.WR, 1],
-    ] as const) {
-      expect(hint).toBeTruthy();
-      const moved = deformByHinge(ready, step!.hinge, -180, hint);
-      expect(moved.movingVertexIds.size).toBeGreaterThan(0);
-      for (const index of moved.movingVertexIds) {
-        const landed = moved.snapshot.vertices[index];
-        expect(landed).toBeTruthy();
-        expect(Math.abs(landed![0])).toBeGreaterThan(sideCrease);
-        expect(Math.sign(landed![0])).toBe(sign);
-      }
-    }
-
-    const outline = winged.outline ?? [];
     const leftFlap = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-flap-left');
     const rightFlap = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-flap-right');
     expect(leftFlap?.fromSnapshotId).toBe('flap-ready');
@@ -320,16 +295,15 @@ describe('origami penguin recipe', () => {
     expect(Math.abs(named(opened, 'L')[0])).toBeGreaterThan(sideCrease + 0.02);
     expect(Math.abs(named(opened, 'RIGHT')[0])).toBeGreaterThan(sideCrease + 0.02);
     expect(named(opened, 'L')[0] * named(opened, 'RIGHT')[0]).toBeLessThan(0);
-
-    expect(Math.min(...outline.map((point) => point[0]))).toBeLessThan(-sideCrease - 0.01);
-    expect(Math.max(...outline.map((point) => point[0]))).toBeGreaterThan(sideCrease + 0.01);
-    expect(named(winged, 'T')[1]).toBeCloseTo(PENGUIN_R, 3);
-    expect(topFaceAt(winged, -0.1, 0)?.tone).toBe('front');
-    expect(topFaceAt(winged, 0.1, 0)?.tone).toBe('front');
-    expect(topFaceAt(winged, 0, 0.08)?.tone).toBe('back');
+    expect(named(opened, 'T')[1]).toBeCloseTo(PENGUIN_R, 3);
+    expect(topFaceAt(opened, -0.1, 0)?.tone).toBe('front');
+    expect(topFaceAt(opened, 0.1, 0)?.tone).toBe('front');
+    expect(topFaceAt(opened, 0, 0.08)?.tone).toBe('back');
+    expect(named(beaked, 'L')[0]).toBeCloseTo(named(opened, 'L')[0], 3);
+    expect(named(beaked, 'RIGHT')[0]).toBeCloseTo(named(opened, 'RIGHT')[0], 3);
     expect(topFaceAt(beaked, -0.1, 0)?.tone).toBe('front');
     expect(topFaceAt(beaked, 0.1, 0)?.tone).toBe('front');
-    expect(named(beaked, 'T')[1]).toBeLessThan(named(winged, 'T')[1] - 0.03);
+    expect(named(beaked, 'T')[1]).toBeLessThan(named(opened, 'T')[1] - 0.03);
 
     const engine = new OrigamiEngine(PENGUIN_RECIPE, PENGUIN_NAMED);
     for (let guard = 0; guard < 16 && engine.currentStep?.id !== 'penguin-flap-right'; guard += 1) {
@@ -368,30 +342,37 @@ describe('origami penguin recipe', () => {
       commitCurrent(engine);
     }
     expect(engine.currentStep?.id).toBe('penguin-beak');
-    expect(engine.currentStep?.fromSnapshotId).toBe('winged');
-    expect(engine.isStepCommitted('penguin-wing-left')).toBe(true);
-    expect(engine.isStepCommitted('penguin-wing-right')).toBe(true);
+    expect(engine.currentStep?.fromSnapshotId).toBe('opened');
+    expect(engine.currentStep?.progressStage).toBe(7);
+    expect(engine.progress()).toMatchObject({ committedCount: 6, totalSteps: 8, activeIndex: 6 });
+    commitCurrent(engine);
+    expect(engine.currentStep?.id).toBe('penguin-decorate');
+    expect(engine.currentStep?.progressStage).toBe(8);
+    expect(engine.progress()).toMatchObject({ committedCount: 7, totalSteps: 8, activeIndex: 7 });
+    commitCurrent(engine);
+    expect(engine.currentStep).toBeNull();
+    expect(engine.progress()).toMatchObject({ committedCount: 8, totalSteps: 8, activeIndex: null });
     engine.reset(PENGUIN_RECIPE, PENGUIN_NAMED);
     expect(engine.currentStep?.id).toBe('penguin-vertical-fold');
-    expect(engine.isStepCommitted('penguin-wing-left')).toBe(false);
-    expect(engine.isStepCommitted('penguin-wing-right')).toBe(false);
+    expect(engine.progress()).toMatchObject({ committedCount: 0, totalSteps: 8, activeIndex: 0 });
   });
 
   it('shapes the beak from the small top flap and shows eyes only at the last step', () => {
     const beak = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-beak');
-    expect(beak?.progressStage).toBe(8);
+    expect(beak?.progressStage).toBe(7);
+    expect(beak?.fromSnapshotId).toBe('opened');
     expect(beak?.hinge.p0[1]).toBeCloseTo(PENGUIN_BEAK_FRAC * PENGUIN_R);
     expect(beak?.hinge.p0[1]).toBeGreaterThan(0.7 * PENGUIN_R);
     expect(Math.abs(beak?.hinge.p0[0] ?? 1)).toBeLessThan(0.05);
-    const winged = PENGUIN_RECIPE.snapshots.winged!;
+    const opened = PENGUIN_RECIPE.snapshots.opened!;
     const beaked = PENGUIN_RECIPE.snapshots.beaked!;
-    expect(named(beaked, 'T')[1]).toBeLessThan(named(winged, 'T')[1] - 0.03);
+    expect(named(beaked, 'T')[1]).toBeLessThan(named(opened, 'T')[1] - 0.03);
     expect(named(beaked, 'T')[1]).toBeGreaterThan(0.4 * PENGUIN_R);
     const decor = PENGUIN_RECIPE.steps.find((step) => step.id === 'penguin-decorate');
-    expect(decor?.progressStage).toBe(9);
+    expect(decor?.progressStage).toBe(8);
     expect(decor?.actionType).toBe('crease-press');
-    expect(PENGUIN_RECIPE.steps.filter((step) => step.progressStage === 9)).toHaveLength(1);
-    expect(PENGUIN_RECIPE.steps.every((step) => step.progressStage !== 9 || step.id === 'penguin-decorate')).toBe(true);
+    expect(PENGUIN_RECIPE.steps.filter((step) => step.progressStage === 8)).toHaveLength(1);
+    expect(PENGUIN_RECIPE.steps.every((step) => step.progressStage !== 8 || step.id === 'penguin-decorate')).toBe(true);
 
     const creature = new PenguinCreature();
     expect(creature.active).toBe(false);

@@ -780,7 +780,7 @@ export class PaperStage {
       return null;
     }
     const step = this.engine.currentStep;
-    if (!step || (step.parallelGroup !== 'penguin-flaps' && step.parallelGroup !== 'penguin-wings')) {
+    if (!step || step.parallelGroup !== 'penguin-flaps') {
       return null;
     }
     const right = this.engine.guideSteps().find((item) => item.id.endsWith('-right'));
