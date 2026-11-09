@@ -299,6 +299,7 @@ export class App {
               ? `${ears.angleDeg.toFixed(0)}°/${ears.targetDeg.toFixed(0)}°  ${(ears.progress * 100).toFixed(0)}%  ${ears.leftCreaseId}/${ears.rightCreaseId}`
               : undefined,
             rightSnap: ears?.snap,
+            penguinWing: this.stage.activeAnimal === 'penguin' ? this.stage.penguinWingDebug() ?? undefined : undefined,
             restart: {
               sessionId: this.stage.sessionId,
               count: this.stage.restartCount,

@@ -98,6 +98,21 @@ export interface DebugPanelView {
     rightPivot?: string;
     rightProgress?: string;
     rightSnap?: string;
+    penguinWing?: {
+      stepId: string;
+      region: string;
+      faceIds: string;
+      hinge: string;
+      pivot: string;
+      angleDeg: number;
+      targetDeg: number;
+      travelM: number;
+      snap: string;
+      committed: string;
+      verified: string;
+      mesh: string;
+      visibility: string;
+    };
     restart?: {
       sessionId: string;
       count: number;
@@ -335,6 +350,17 @@ function draw(view: DebugPanelView): HTMLCanvasElement {
     line('owl layers', view.fold?.recipeId === 'origami-owl' ? String(view.fold.layerCount ?? '—') : '—'),
     line('owl sides', view.fold?.recipeId === 'origami-owl' ? view.fold.sideFolds ?? '—' : '—'),
     line('owl decor', view.fold?.recipeId === 'origami-owl' ? view.fold.decorState ?? '—' : '—'),
+    line('pen wing', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.stepId ?? '—' : '—'),
+    line('pen region', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.region ?? '—' : '—'),
+    line('pen faces', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.faceIds ?? '—' : '—'),
+    line('pen hinge', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.hinge ?? '—' : '—'),
+    line('pen pivot', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.pivot ?? '—' : '—'),
+    line('pen angle', view.fold?.recipeId === 'origami-penguin' && view.fold.penguinWing ? `${view.fold.penguinWing.angleDeg.toFixed(0)}/${view.fold.penguinWing.targetDeg.toFixed(0)}` : '—'),
+    line('pen mesh', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.mesh ?? '—' : '—'),
+    line('pen snap', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.snap ?? '—' : '—'),
+    line('pen commit', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.committed ?? '—' : '—'),
+    line('pen verified', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.verified ?? '—' : '—'),
+    line('pen vis', view.fold?.recipeId === 'origami-penguin' ? view.fold.penguinWing?.visibility ?? '—' : '—'),
     line('owl jump', 'alt+1..5'),
     line('bat insp', `${BAT_SHAPE_INSPECTOR.enabled ? 'on' : 'off'}  shift+B`),
     line('cut path', `${BAT_CUT_INSPECTOR.path ? 'show' : 'hide'}  shift+C`),

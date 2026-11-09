@@ -45,7 +45,7 @@ import {
 import { progressFromRecipe, type ProgressModel } from './progressModel.ts';
 import { CREASE_ALIGN_TOL_M, creaseAlignmentErrorM } from './creaseMath.ts';
 import { layerOwnershipLabel } from './foldLayerGroup.ts';
-import { foldAxisDebug } from './MeshSplitter.ts';
+import { foldAxisDebug, hingeFoldTravelM, type FoldAxisDebug } from './MeshSplitter.ts';
 import { FOX_SHAPE_INSPECTOR } from './foxFinalShape.ts';
 import { validateBatGeometry } from './batFinalShape.ts';
 import { BAT_NAMED, BAT_PAPER_COLOR, BAT_RECIPE } from './recipes/bat.recipe.ts';
@@ -73,6 +73,90 @@ const _quat = new Quaternion();
 
 function vec3(vector: Vector3): Vec3 {
   return [vector.x, vector.y, vector.z];
+}
+
+export interface PenguinWingDebug {
+  stepId: string;
+  region: string;
+  faceIds: string;
+  hinge: string;
+  pivot: string;
+  angleDeg: number;
+  targetDeg: number;
+  travelM: number;
+  snap: string;
+  committed: 'Yes' | 'No';
+  verified: 'Yes' | 'No';
+  mesh: string;
+  visibility: string;
+}
+
+function pointInPoly(points: Vec3[], x: number, y: number): boolean {
+  let inside = false;
+  for (let index = 0, previous = points.length - 1; index < points.length; previous = index, index += 1) {
+    const current = points[index];
+    const prior = points[previous];
+    if (!current || !prior) {
+      continue;
+    }
+    const crosses =
+      current[1] > y !== prior[1] > y &&
+      x < ((prior[0] - current[0]) * (y - current[1])) / (prior[1] - current[1] + 1e-12) + current[0];
+    if (crosses) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Paper materials are double sided, so a back-facing wing is still drawn. */
+function wingVisibility(debug: FoldAxisDebug): string {
+  const moving = debug.snapshot.faces.filter((face) => debug.movingFaceIds.includes(face.id));
+  if (moving.length === 0) {
+    return 'cull off | hidden yes | backface no | occluded no';
+  }
+  let area = 0;
+  let back = 0;
+  let covered = 0;
+  for (const face of moving) {
+    const points = face.vertices.flatMap((index) => {
+      const point = debug.snapshot.vertices[index];
+      return point ? [point] : [];
+    });
+    if (points.length < 3) {
+      continue;
+    }
+    const a = points[0];
+    const b = points[1];
+    const c = points[2];
+    if (!a || !b || !c) {
+      continue;
+    }
+    const nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    area += Math.abs(nz) * 0.5;
+    if (nz < 0) {
+      back += 1;
+    }
+    const cx = points.reduce((sum, point) => sum + point[0], 0) / points.length;
+    const cy = points.reduce((sum, point) => sum + point[1], 0) / points.length;
+    const blocked = debug.snapshot.faces.some((other) => {
+      if (other.id === face.id || other.layer <= face.layer) {
+        return false;
+      }
+      const poly = other.vertices.flatMap((index) => {
+        const point = debug.snapshot.vertices[index];
+        return point ? [point] : [];
+      });
+      return poly.length >= 3 && pointInPoly(poly, cx, cy);
+    });
+    if (blocked) {
+      covered += 1;
+    }
+  }
+  const hidden = area < 1e-4;
+  const backface = back * 2 >= moving.length;
+  const occluded = covered * 2 >= moving.length;
+  return `cull off | hidden ${hidden ? 'yes' : 'no'} | backface ${backface ? 'yes' : 'no'} | occluded ${occluded ? 'yes' : 'no'}`;
 }
 
 export class PaperStage {
@@ -669,7 +753,63 @@ export class PaperStage {
         `movingVerts ${debug.movingVertexIds.length}`,
       ].join(' | ');
     });
+    const wing = this.penguinWingDebug();
+    if (wing) {
+      lines.push(
+        [
+          'right-wing',
+          `region ${wing.region}`,
+          `step ${wing.stepId}`,
+          `faces ${wing.faceIds}`,
+          `hinge ${wing.hinge}`,
+          `pivot ${wing.pivot}`,
+          `angle ${wing.angleDeg.toFixed(0)}/${wing.targetDeg}`,
+          `mesh ${wing.mesh}`,
+          `snap ${wing.snap}`,
+          `committed ${wing.committed}`,
+          `verified ${wing.verified}`,
+          wing.visibility,
+        ].join(' | '),
+      );
+    }
     console.info(`[penguin-flap]\n${lines.join('\n')}`);
+  }
+
+  penguinWingDebug(): PenguinWingDebug | null {
+    if (this.animalId !== 'penguin') {
+      return null;
+    }
+    const step = this.engine.currentStep;
+    if (!step || (step.parallelGroup !== 'penguin-flaps' && step.parallelGroup !== 'penguin-wings')) {
+      return null;
+    }
+    const right = this.engine.guideSteps().find((item) => item.id.endsWith('-right'));
+    const from = this.engine.fromSnapshot;
+    if (!right || !from) {
+      return null;
+    }
+    const active = step.id === right.id;
+    const angle = active ? this.engine.angle : right.startAngleDeg;
+    const debug = foldAxisDebug(right, from, angle);
+    const travel = hingeFoldTravelM(right, from, right.targetAngleDeg);
+    const originals = [...new Set(debug.movingFaceIds.map((id) => id.split(':')[0] ?? id))];
+    const point = (value: readonly number[]) => value.map((coord) => coord.toFixed(3)).join(',');
+    const committed = this.engine.isStepCommitted(right.id);
+    return {
+      stepId: right.id,
+      region: step.movingRegion.id,
+      faceIds: originals.join(',') || 'none',
+      hinge: `${point(right.hinge.p0)} -> ${point(right.hinge.p1)}`,
+      pivot: point(right.hinge.p0),
+      angleDeg: active ? this.engine.angle : committed ? right.targetAngleDeg : right.startAngleDeg,
+      targetDeg: right.targetAngleDeg,
+      travelM: travel,
+      snap: committed ? 'committed' : this.engine.enginePhase,
+      committed: committed ? 'Yes' : 'No',
+      verified: this.engine.isGeometryVerified(right.id) ? 'Yes' : 'No',
+      mesh: `travel ${travel.toFixed(3)}m verts ${debug.movingVertexIds.length} faces ${debug.movingFaceIds.length}`,
+      visibility: wingVisibility(debug),
+    };
   }
 
   commitProgress(): void {

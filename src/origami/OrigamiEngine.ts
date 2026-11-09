@@ -19,7 +19,7 @@ import {
 import { foldFeedbackBus, type FoldFeedbackPayload } from '../feedback/foldFeedback.ts';
 import { hitMovingRegion } from '../input/GrabRegionMath.ts';
 import { stepCreaseLine } from './creaseMath.ts';
-import { applyHingeSnapshot, foldAxisDebug, usesAxisAngleFold } from './MeshSplitter.ts';
+import { applyHingeSnapshot, foldAxisDebug, hingeFoldTravelM, HINGE_MIN_TRAVEL_M, usesAxisAngleFold } from './MeshSplitter.ts';
 import { originalFaceId } from './foldLayerGroup.ts';
 import { assertRecipe } from './RecipeValidator.ts';
 import { PAPER_SIZE_M } from './placement.ts';
@@ -97,6 +97,9 @@ export class OrigamiEngine {
   private snapArmed = false;
   private committedStepIds = new Set<string>();
   private liveSnapshot: MeshSnapshot | null = null;
+  /** Parallel group that produced `liveSnapshot`. A new group starts from its recipe mesh. */
+  private liveGroup: string | null = null;
+  private readonly geometryVerified = new Set<string>();
 
   constructor(recipe: OrigamiRecipe, vertices: Record<string, Vec3>) {
     assertRecipe(recipe);
@@ -109,7 +112,7 @@ export class OrigamiEngine {
     if (this.isComplete()) {
       return this.finalSnapshot();
     }
-    if (this.liveSnapshot) {
+    if (this.liveSnapshot && this.currentStep?.parallelGroup && this.currentStep.parallelGroup === this.liveGroup) {
       return this.liveSnapshot;
     }
     const id = this.currentStep?.fromSnapshotId;
@@ -266,6 +269,11 @@ export class OrigamiEngine {
     return this.committedStepIds.has(stepId);
   }
 
+  /** True only after that step's hinge actually moved paper and the mesh was committed. */
+  isGeometryVerified(stepId: string): boolean {
+    return this.geometryVerified.has(stepId);
+  }
+
   completedStepIds(): string[] {
     return [...this.committedStepIds];
   }
@@ -315,6 +323,8 @@ export class OrigamiEngine {
     this.committedStepIds.clear();
     this.commitEvents = 0;
     this.liveSnapshot = null;
+    this.liveGroup = null;
+    this.geometryVerified.clear();
     this.silhouettePassed = true;
     this.resetSnapArm();
   }
@@ -442,6 +452,16 @@ export class OrigamiEngine {
       landmarkErrorM: this.lastValidation.landmarkErrorM,
       assist: this.assistUsed,
     });
+    if (this.lastValidation.ok && !this.foldGeometryReady(step)) {
+      this.rejectUnmovedFold(step);
+      this.lastValidation = {
+        ok: false,
+        angleErrorDeg: Math.abs(this.angleDeg - step.targetAngleDeg),
+        landmarkErrorM: 0,
+        reason: 'geometry',
+      };
+      return this.lastValidation;
+    }
     if (this.lastValidation.ok) {
       this.startAnim('snapping', this.angleDeg, step.targetAngleDeg, snapDurationMs());
     } else {
@@ -462,6 +482,10 @@ export class OrigamiEngine {
     this.holdMs = 0;
     this.foldT = foldProgress(step.startAngleDeg, step.targetAngleDeg, this.angleDeg);
     if (this.snapArmed) {
+      if (!this.foldGeometryReady(step)) {
+        this.rejectUnmovedFold(step);
+        return 'noop';
+      }
       this.startAnim('snapping', this.angleDeg, step.targetAngleDeg, snapDurationMs());
       return 'snapping';
     }
@@ -472,6 +496,10 @@ export class OrigamiEngine {
   assistToTarget(): void {
     const step = this.currentStep;
     if (!step || this.isBusy()) {
+      return;
+    }
+    if (!this.foldGeometryReady(step)) {
+      this.rejectUnmovedFold(step);
       return;
     }
     this.assistUsed = true;
@@ -495,7 +523,14 @@ export class OrigamiEngine {
     this.angleDeg = this.animTo;
     if (this.phase === 'snapping') {
       const payload = this.feedbackPayload(this.currentStep);
-      this.commitStep();
+      const committed = this.commitStep();
+      if (!committed) {
+        if (payload) {
+          foldFeedbackBus.emit('fold:snap-cancelled', payload);
+          debugEvents.emit('foldSnapCancelled', { stepId: payload.stepId, recipeId: payload.recipeId });
+        }
+        return { finished: true, committed: false };
+      }
       if (payload) {
         foldFeedbackBus.emit('fold:snap-complete', payload);
         debugEvents.emit('foldSnapComplete', { stepId: payload.stepId, recipeId: payload.recipeId, assist: payload.assist });
@@ -507,29 +542,41 @@ export class OrigamiEngine {
     return { finished: true, committed: false };
   }
 
-  private commitStep(): void {
+  private commitStep(): boolean {
     const step = this.currentStep;
     if (!step) {
-      return;
+      return false;
     }
     if (this.committedStepIds.has(step.id)) {
       this.phase = this.committed >= this.recipe.steps.length ? 'locked' : 'idle';
       this.holdMs = 0;
-      return;
+      return false;
+    }
+    const from = this.fromSnapshot;
+    if (!this.foldGeometryReady(step, from)) {
+      this.rejectUnmovedFold(step);
+      return false;
     }
     this.committed += 1;
     this.commitEvents += 1;
     this.committedStepIds.add(step.id);
-    const from = this.fromSnapshot;
-    if (step.parallelGroup && from && usesAxisAngleFold(step)) {
+    if (usesAxisAngleFold(step)) {
+      this.geometryVerified.add(step.id);
+    }
+    const next = this.recipe.steps.find((candidate) => !this.committedStepIds.has(candidate.id));
+    const keepLive = Boolean(step.parallelGroup && next?.parallelGroup === step.parallelGroup && from && usesAxisAngleFold(step));
+    if (keepLive && from) {
       const hint = step.targetLandmarks[0]?.sourceVertexId
         ? from.named?.[step.targetLandmarks[0].sourceVertexId]
         : undefined;
       this.liveSnapshot = applyHingeSnapshot(from, step.hinge, step.direction, step.targetAngleDeg, hint);
+      this.liveGroup = step.parallelGroup ?? null;
       if (this.liveSnapshot.named) {
         this.vertices = { ...this.liveSnapshot.named };
       }
     } else {
+      this.liveSnapshot = null;
+      this.liveGroup = null;
       const named = this.recipe.snapshots[step.toSnapshotId]?.named;
       if (named) {
         this.vertices = { ...named };
@@ -549,13 +596,14 @@ export class OrigamiEngine {
       this.silhouettePassed = this.evaluateSilhouette();
       this.phase = 'locked';
       this.stepIndex = this.recipe.steps.length;
-      return;
+      return true;
     }
     const nextIndex = this.recipe.steps.findIndex((candidate) => !this.committedStepIds.has(candidate.id));
     this.stepIndex = nextIndex >= 0 ? nextIndex : this.recipe.steps.length;
     this.angleDeg = this.currentStep?.startAngleDeg ?? 0;
     this.phase = 'idle';
     this.assistUsed = false;
+    return true;
   }
 
   private evaluateSilhouette(): boolean {
@@ -603,6 +651,10 @@ export class OrigamiEngine {
   }
 
   private beginSnap(step: FoldStep): void {
+    if (!this.foldGeometryReady(step)) {
+      this.rejectUnmovedFold(step);
+      return;
+    }
     this.grabLocal = null;
     this.lastValidation = {
       ok: true,
@@ -653,7 +705,41 @@ export class OrigamiEngine {
 
   private usesLiveParallelSnapshot(): boolean {
     const step = this.currentStep;
-    return Boolean(step?.parallelGroup && this.liveSnapshot);
+    return Boolean(step?.parallelGroup && step.parallelGroup === this.liveGroup && this.liveSnapshot);
+  }
+
+  private foldGeometryReady(step: FoldStep, from = this.fromSnapshot): boolean {
+    if (!usesAxisAngleFold(step) || step.targetLandmarks.length === 0) {
+      return true;
+    }
+    if (!from) {
+      return false;
+    }
+    return hingeFoldTravelM(step, from, step.targetAngleDeg) >= HINGE_MIN_TRAVEL_M;
+  }
+
+  /** Leave the step active when the angle reached the target but the paper did not. */
+  private rejectUnmovedFold(step: FoldStep): void {
+    this.geometryVerified.delete(step.id);
+    this.phase = 'idle';
+    this.angleDeg = step.startAngleDeg;
+    this.grabLocal = null;
+    this.holdMs = 0;
+    this.resetSnapArm();
+    this.lastValidation = {
+      ok: false,
+      angleErrorDeg: Math.abs(step.targetAngleDeg - step.startAngleDeg),
+      landmarkErrorM: 0,
+      reason: 'geometry',
+    };
+    debugEvents.emit('foldRejected', {
+      stepId: step.id,
+      reason: 'geometry',
+      angleDeg: step.targetAngleDeg,
+      angleErrorDeg: this.lastValidation.angleErrorDeg,
+      landmarkErrorM: 0,
+      assist: this.assistUsed,
+    });
   }
 
   private foxEarStatus(step: FoldStep): FoxEarFoldState['left'] {

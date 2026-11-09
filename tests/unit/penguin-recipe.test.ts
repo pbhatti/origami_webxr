@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { PenguinCreature } from '../../src/animation/PenguinCreature.ts';
 import { sampleHitsRegion } from '../../src/input/GrabRegionMath.ts';
 import { rotateAroundY } from '../../src/origami/CreaseSolver.ts';
-import { paperFlipYawRad, turnSnapshot } from '../../src/origami/FoldPaper.ts';
-import { deformByHinge } from '../../src/origami/MeshSplitter.ts';
+import { deformFoldSnapshot, paperFlipYawRad, turnSnapshot } from '../../src/origami/FoldPaper.ts';
+import { deformByHinge, hingeFoldTravelM } from '../../src/origami/MeshSplitter.ts';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
 import { PAPER_SIZE_M } from '../../src/origami/placement.ts';
 import { origamiPaperMaterial } from '../../src/origami/OrigamiPaperMaterial.ts';
@@ -306,7 +306,38 @@ describe('origami penguin recipe', () => {
     expect(named(beaked, 'T')[1]).toBeLessThan(named(winged, 'T')[1] - 0.03);
 
     const engine = new OrigamiEngine(PENGUIN_RECIPE, PENGUIN_NAMED);
-    for (let guard = 0; guard < 16 && engine.currentStep?.id !== 'penguin-beak'; guard += 1) {
+    for (let guard = 0; guard < 16 && engine.currentStep?.id !== 'penguin-flap-right'; guard += 1) {
+      commitCurrent(engine);
+    }
+    expect(engine.currentStep?.id).toBe('penguin-flap-right');
+    const liveRight = engine.fromSnapshot!;
+    const rightStep = engine.currentStep!;
+    expect(hingeFoldTravelM(rightStep, liveRight, rightStep.targetAngleDeg)).toBeGreaterThan(0.02);
+    const flat = deformFoldSnapshot(rightStep, liveRight, engine.toSnapshot!, 0);
+    const openedRight = deformFoldSnapshot(rightStep, liveRight, engine.toSnapshot!, 90);
+    const moved = flat.vertices.some((point, index) => {
+      const next = openedRight.vertices[index];
+      return next != null && Math.hypot(next[0] - point[0], next[1] - point[1], next[2] - point[2]) > 0.01;
+    });
+    expect(moved).toBe(true);
+    engine.beginGrab([0.03, 0.02, 0.02]);
+    expect(engine.currentStep?.id).toBe('penguin-flap-right');
+    const drag = rightStep.arrowPathLocal.at(-1)!;
+    engine.updateFold(drag, false, 400);
+    expect(engine.angle).toBeGreaterThan(20);
+    const dragging = deformFoldSnapshot(engine.currentStep!, engine.fromSnapshot!, engine.toSnapshot!, engine.angle);
+    const dragMoved = engine.fromSnapshot!.vertices.some((point, index) => {
+      const next = dragging.vertices[index];
+      return next != null && Math.hypot(next[0] - point[0], next[1] - point[1], next[2] - point[2]) > 0.008;
+    });
+    expect(dragMoved).toBe(true);
+    expect(engine.isStepCommitted('penguin-flap-right')).toBe(false);
+    commitCurrent(engine);
+    expect(engine.isStepCommitted('penguin-flap-right')).toBe(true);
+    expect(engine.isGeometryVerified('penguin-flap-right')).toBe(true);
+    expect(engine.currentStep?.id).not.toBe('penguin-flap-right');
+
+    for (let guard = engine.completedStepIds().length; guard < 16 && engine.currentStep?.id !== 'penguin-beak'; guard += 1) {
       commitCurrent(engine);
     }
     expect(engine.currentStep?.id).toBe('penguin-beak');

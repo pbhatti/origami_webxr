@@ -9,7 +9,7 @@ export interface FoldValidation {
   ok: boolean;
   angleErrorDeg: number;
   landmarkErrorM: number;
-  reason: 'ok' | 'angle' | 'landmark' | 'both';
+  reason: 'ok' | 'angle' | 'landmark' | 'both' | 'geometry';
 }
 
 export interface FoldValidationOptions {

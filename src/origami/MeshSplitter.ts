@@ -380,6 +380,32 @@ export function applyHingeSnapshot(
   return { ...result.snapshot, faces, named };
 }
 
+/** Minimum travel, in meters, before a hinge fold is allowed to commit. */
+export const HINGE_MIN_TRAVEL_M = 0.012;
+
+/**
+ * How far the moving paper actually travels at `angleDeg`.
+ * A pinch that only changes the angle leaves this at 0.
+ */
+export function hingeFoldTravelM(step: FoldStep, fromSnap: MeshSnapshot, angleDeg: number): number {
+  const hint = step.targetLandmarks[0]?.sourceVertexId
+    ? fromSnap.named?.[step.targetLandmarks[0].sourceVertexId]
+    : undefined;
+  const signed = step.direction === 'valley' ? -angleDeg : angleDeg;
+  const flat = deformByHinge(fromSnap, step.hinge, 0, hint);
+  const posed = deformByHinge(fromSnap, step.hinge, signed, hint);
+  let travel = 0;
+  for (const index of posed.movingVertexIds) {
+    const before = flat.snapshot.vertices[index];
+    const after = posed.snapshot.vertices[index];
+    if (!before || !after) {
+      continue;
+    }
+    travel = Math.max(travel, distance3(before, after));
+  }
+  return travel;
+}
+
 export function usesAxisAngleFold(step: FoldStep): boolean {
   if (stepActionType(step) === 'crease-press' || step.meshStrategy === 'turn') {
     return false;
