@@ -67,6 +67,7 @@ export const PENGUIN_STEPS = [
   'sides-inward',
   'side-flaps',
   'beak',
+  'face-turn',
   'penguin-decoration',
 ] as const;
 
@@ -78,6 +79,7 @@ const STAGE_TITLE = [
   'Fold both sides inward',
   'Spread both wings',
   'Shape the beak',
+  'Flip the penguin',
   'Bring it to life',
 ] as const;
 
@@ -89,7 +91,8 @@ const STAGE_INSTRUCTION = [
   'Fold the left and right sides toward the center.',
   'Fold both flaps outward past the body.',
   'Fold the top tip downward to create the beak.',
-  'Pinch to bring your penguin to life!',
+  'Rotate the origami 180° to reveal the front.',
+  'Pinch to add eyes and bring your penguin to life!',
 ] as const;
 
 function uvOf(point: Vec3): Vec2 {
@@ -581,12 +584,24 @@ const beaked = foldStacked(opened.snapshot, HINGE_BEAK, T, {
   ...opened.snapshot.named,
   T: [BEAK_TIP[0], BEAK_TIP[1], 0],
 });
-const penguin = pose(beaked.snapshot, beaked.snapshot.named ?? {});
+
+/** Turn the finished folds over, then keep the same side facing the viewer. */
+function faceForward(snapshot: MeshSnapshot): MeshSnapshot {
+  const turned = turnSnapshot(snapshot, 180);
+  return {
+    ...turned,
+    faces: turned.faces.map((face) => ({ ...face, vertices: [...face.vertices].reverse() })),
+  };
+}
+
+const facedMesh = faceForward(beaked.snapshot);
+const faced = pose(facedMesh, facedMesh.named ?? {});
+const penguin = pose(faced, faced.named ?? {});
 
 export const PENGUIN_BEAK_TIP: Vec3 = [BEAK_TIP[0], BEAK_TIP[1], 0];
 export const PENGUIN_FEATURE_Z = 0.012;
-export const PENGUIN_EYE_L: Vec3 = [-0.014, BEAK_Y - 0.02, PENGUIN_FEATURE_Z];
-export const PENGUIN_EYE_R: Vec3 = [0.014, BEAK_Y - 0.02, PENGUIN_FEATURE_Z];
+export const PENGUIN_EYE_L: Vec3 = [-0.011, BEAK_Y - 0.014, PENGUIN_FEATURE_Z];
+export const PENGUIN_EYE_R: Vec3 = [0.011, BEAK_Y - 0.014, PENGUIN_FEATURE_Z];
 export const PENGUIN_PINCH_AT: Vec3 = [0, 0.01, 0.014];
 export const PENGUIN_NAMED = REST;
 
@@ -621,6 +636,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
     'flap-ready': flapReady,
     opened: opened.snapshot,
     beaked: beaked.snapshot,
+    faced,
     penguin,
   },
   finalSilhouette: penguin.outline,
@@ -964,12 +980,38 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       validationNotes: 'Step 7. Only the small top tip folds down into the beak. The Step 6 wings stay extended.',
     }),
     step({
-      id: 'penguin-decorate',
+      id: 'penguin-face',
       ordinal: 13,
       progressStage: 8,
       title: STAGE_TITLE[7],
       instruction: STAGE_INSTRUCTION[7],
       fromSnapshotId: 'beaked',
+      toSnapshotId: 'faced',
+      actionType: 'fold',
+      hinge: { ...HINGE_FLIP, id: 'penguin-face' },
+      direction: 'valley',
+      movingRegion: {
+        id: 'moving-face-turn',
+        faceIds: ['top-left', 'top-right', 'bot-left', 'bot-right'],
+        polygonUV: uvPoly(beaked.snapshot.outline ?? [L, T, RIGHT, B]),
+        allowedHands: 'either',
+      },
+      startAngleDeg: 0,
+      targetAngleDeg: 180,
+      minAngleDeg: 0,
+      maxAngleDeg: 180,
+      targetLandmarks: [],
+      arrowPathLocal: rotationArrow(0.072, 0.02),
+      meshStrategy: 'turn',
+      validationNotes: 'Step 8. The finished folds rotate 180° around the vertical axis. Wings stay extended, and eyes are not added yet.',
+    }),
+    step({
+      id: 'penguin-decorate',
+      ordinal: 14,
+      progressStage: 9,
+      title: STAGE_TITLE[8],
+      instruction: STAGE_INSTRUCTION[8],
+      fromSnapshotId: 'faced',
       toSnapshotId: 'penguin',
       actionType: 'crease-press',
       creasePressHoldMs: 650,
@@ -988,7 +1030,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       targetLandmarks: [],
       arrowPathLocal: arc([-0.016, PENGUIN_PINCH_AT[1], 0.012], [0.016, PENGUIN_PINCH_AT[1], 0.012], 0.012),
       meshStrategy: 'crease-press',
-      validationNotes: 'Step 8. One pinch shows the eyes. No decorations exist before this step.',
+      validationNotes: 'Step 9. One pinch shows both eyes. The flip must already be finished, and no eyes exist before this step.',
     }),
   ],
   finalCreatureAsset: 'folded-paper-penguin',

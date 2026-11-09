@@ -1,10 +1,12 @@
 import { DoubleSide, Group, Mesh, MeshBasicMaterial, RingGeometry, SphereGeometry, Vector3 } from 'three';
-import { PENGUIN_PINCH_AT } from './recipes/penguin.recipe.ts';
+import { foldFeedbackBus } from '../feedback/foldFeedback.ts';
+import { PENGUIN_EYE_L, PENGUIN_EYE_R } from './recipes/penguin.recipe.ts';
 
 export type PenguinPinchState = 'hidden' | 'ready' | 'playing' | 'done';
 
 const REVEAL_MS = 1100;
-const HIT_RADIUS_M = 0.038;
+const HIT_RADIUS_M = 0.028;
+const EYE_MARKS = [PENGUIN_EYE_L, PENGUIN_EYE_R] as const;
 
 const _world = new Vector3();
 const _origin = new Vector3();
@@ -17,34 +19,38 @@ export class PenguinPinch {
   private elapsed = 0;
   private hover = false;
   private commitPending = false;
-  private readonly ring: Mesh;
-  private readonly glow: Mesh;
+  private readonly markers: Group[];
 
   constructor() {
     this.group.name = 'penguin-pinch-target';
-    this.group.position.set(PENGUIN_PINCH_AT[0], PENGUIN_PINCH_AT[1], PENGUIN_PINCH_AT[2]);
     this.group.visible = false;
-    this.ring = new Mesh(
-      new RingGeometry(0.016, 0.024, 28),
-      new MeshBasicMaterial({
-        color: '#d7f6ff',
-        transparent: true,
-        opacity: 0.92,
-        side: DoubleSide,
-        depthWrite: false,
-      }),
-    );
-    this.glow = new Mesh(
-      new SphereGeometry(0.012, 16, 12),
-      new MeshBasicMaterial({
-        color: '#9ee7f8',
-        transparent: true,
-        opacity: 0.55,
-        depthWrite: false,
-      }),
-    );
-    this.ring.position.z = 0.001;
-    this.group.add(this.glow, this.ring);
+    this.markers = EYE_MARKS.map((at) => {
+      const marker = new Group();
+      marker.position.set(at[0], at[1], at[2]);
+      const ring = new Mesh(
+        new RingGeometry(0.009, 0.012, 24),
+        new MeshBasicMaterial({
+          color: '#d7f6ff',
+          transparent: true,
+          opacity: 0.7,
+          side: DoubleSide,
+          depthWrite: false,
+        }),
+      );
+      const glow = new Mesh(
+        new SphereGeometry(0.004, 14, 10),
+        new MeshBasicMaterial({
+          color: '#9ee7f8',
+          transparent: true,
+          opacity: 0.35,
+          depthWrite: false,
+        }),
+      );
+      ring.position.z = 0.001;
+      marker.add(glow, ring);
+      this.group.add(marker);
+      return marker;
+    });
   }
 
   attach(parent: Group): void {
@@ -92,6 +98,12 @@ export class PenguinPinch {
     this.elapsed = 0;
     this.commitPending = false;
     this.group.visible = false;
+    foldFeedbackBus.emit('fold:snap-complete', {
+      recipeId: 'origami-penguin',
+      stepId: 'penguin-eyes',
+      crease: [PENGUIN_EYE_L, PENGUIN_EYE_R],
+      assist: false,
+    });
     return true;
   }
 
@@ -140,8 +152,10 @@ export class PenguinPinch {
     if (!this.group.visible || this.state !== 'ready') {
       return false;
     }
-    this.group.getWorldPosition(_world);
-    return _world.distanceTo(worldPoint) <= HIT_RADIUS_M;
+    return this.markers.some((marker) => {
+      marker.getWorldPosition(_world);
+      return _world.distanceTo(worldPoint) <= HIT_RADIUS_M;
+    });
   }
 
   raycast(origin: Vector3, direction: Vector3): boolean {
@@ -156,12 +170,14 @@ export class PenguinPinch {
     const inverse = parent.matrixWorld.clone().invert();
     _origin.copy(origin).applyMatrix4(inverse);
     _dir.copy(direction).transformDirection(inverse).normalize();
-    _local.copy(this.group.position).sub(_origin);
-    const t = _local.dot(_dir);
-    if (t < 0) {
-      return false;
-    }
-    const closest = _origin.addScaledVector(_dir, t);
-    return closest.distanceTo(this.group.position) <= HIT_RADIUS_M;
+    return this.markers.some((marker) => {
+      _local.copy(marker.position).sub(_origin);
+      const t = _local.dot(_dir);
+      if (t < 0) {
+        return false;
+      }
+      const closest = _origin.clone().addScaledVector(_dir, t);
+      return closest.distanceTo(marker.position) <= HIT_RADIUS_M;
+    });
   }
 }
