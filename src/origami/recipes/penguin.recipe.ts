@@ -585,12 +585,32 @@ const beaked = foldStacked(opened.snapshot, HINGE_BEAK, T, {
   T: [BEAK_TIP[0], BEAK_TIP[1], 0],
 });
 
-/** Turn the finished folds over, then keep the same side facing the viewer. */
+/**
+ * Layers created when the wings open. Their blue side stays toward the viewer
+ * after the flip. Body layers are left on the side the turn reveals.
+ */
+const WING_LAYER_MIN = openLeft.minLayer;
+const WING_LAYER_MAX = opened.maxLayer;
+
+/**
+ * Rotate the finished packet 180° around its vertical axis and present the
+ * side that rotation uncovers. Every face keeps its id and paper assignment.
+ * Stack order reverses with the packet, so the sheet that was underneath
+ * faces the viewer instead of being rebuilt as a flat copy of the old side.
+ */
 function faceForward(snapshot: MeshSnapshot): MeshSnapshot {
   const turned = turnSnapshot(snapshot, 180);
+  const maxLayer = turned.faces.reduce((max, face) => Math.max(max, face.layer), 0);
   return {
     ...turned,
-    faces: turned.faces.map((face) => ({ ...face, vertices: [...face.vertices].reverse() })),
+    faces: turned.faces.map((face) => {
+      const blueWing = face.layer >= WING_LAYER_MIN && face.layer <= WING_LAYER_MAX;
+      return {
+        ...face,
+        layer: maxLayer - face.layer,
+        vertices: blueWing ? [...face.vertices].reverse() : face.vertices,
+      };
+    }),
   };
 }
 
@@ -1003,7 +1023,7 @@ export const PENGUIN_RECIPE: OrigamiRecipe = {
       targetLandmarks: [],
       arrowPathLocal: rotationArrow(0.072, 0.02),
       meshStrategy: 'turn',
-      validationNotes: 'Step 8. The finished folds rotate 180° around the vertical axis. Wings stay extended, and eyes are not added yet.',
+      validationNotes: 'Step 8. The finished folds rotate 180° around the vertical axis. The turn reveals the blue head and white belly. Wings stay extended, and eyes are not added yet.',
     }),
     step({
       id: 'penguin-decorate',

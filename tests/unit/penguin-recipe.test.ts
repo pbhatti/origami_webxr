@@ -3,6 +3,7 @@ import { PenguinCreature } from '../../src/animation/PenguinCreature.ts';
 import { sampleHitsRegion } from '../../src/input/GrabRegionMath.ts';
 import { rotateAroundY } from '../../src/origami/CreaseSolver.ts';
 import { deformFoldSnapshot, paperFlipYawRad, turnSnapshot } from '../../src/origami/FoldPaper.ts';
+import { buildPaperMesh } from '../../src/origami/paperDepth.ts';
 import { deformByHinge, hingeFoldTravelM } from '../../src/origami/MeshSplitter.ts';
 import { OrigamiEngine } from '../../src/origami/OrigamiEngine.ts';
 import { PAPER_SIZE_M } from '../../src/origami/placement.ts';
@@ -57,6 +58,63 @@ function contains(poly: Vec3[], x: number, y: number): boolean {
     }
   }
   return inside;
+}
+
+function visiblePaperAt(
+  snapshot: MeshSnapshot,
+  x: number,
+  y: number,
+): { tone: 'front' | 'back'; normalZ: number } | null {
+  const built = buildPaperMesh(snapshot, false);
+  const positions = built.positions;
+  const normals = built.normals;
+  let bestZ = Number.NEGATIVE_INFINITY;
+  let found: { tone: 'front' | 'back'; normalZ: number } | null = null;
+  for (let index = 0; index < positions.length; index += 9) {
+    const vertex = index / 3;
+    const material = built.groups.find((group) => vertex >= group.start && vertex < group.start + group.count)?.materialIndex;
+    if (material !== 0 && material !== 1) {
+      continue;
+    }
+    const ax = positions[index] ?? 0;
+    const ay = positions[index + 1] ?? 0;
+    const az = positions[index + 2] ?? 0;
+    const bx = positions[index + 3] ?? 0;
+    const by = positions[index + 4] ?? 0;
+    const bz = positions[index + 5] ?? 0;
+    const cx = positions[index + 6] ?? 0;
+    const cy = positions[index + 7] ?? 0;
+    const cz = positions[index + 8] ?? 0;
+    const v0x = cx - ax;
+    const v0y = cy - ay;
+    const v1x = bx - ax;
+    const v1y = by - ay;
+    const v2x = x - ax;
+    const v2y = y - ay;
+    const dot00 = v0x * v0x + v0y * v0y;
+    const dot01 = v0x * v1x + v0y * v1y;
+    const dot02 = v0x * v2x + v0y * v2y;
+    const dot11 = v1x * v1x + v1y * v1y;
+    const dot12 = v1x * v2x + v1y * v2y;
+    const denom = dot00 * dot11 - dot01 * dot01;
+    if (Math.abs(denom) < 1e-12) {
+      continue;
+    }
+    const inv = 1 / denom;
+    const u = (dot11 * dot02 - dot01 * dot12) * inv;
+    const v = (dot00 * dot12 - dot01 * dot02) * inv;
+    if (u < -1e-4 || v < -1e-4 || u + v > 1 + 1e-4) {
+      continue;
+    }
+    const z = (az + bz + cz) / 3;
+    if (z <= bestZ) {
+      continue;
+    }
+    bestZ = z;
+    const normalZ = ((normals[index + 2] ?? 0) + (normals[index + 5] ?? 0) + (normals[index + 8] ?? 0)) / 3;
+    found = { tone: material === 0 ? 'front' : 'back', normalZ };
+  }
+  return found;
 }
 
 function topFaceAt(snapshot: MeshSnapshot, x: number, y: number): { tone: 'front' | 'back'; materialId: string } | null {
@@ -411,12 +469,32 @@ describe('origami penguin recipe', () => {
     expect(named(faced, 'RIGHT')[0]).toBeCloseTo(-named(beaked, 'RIGHT')[0], 4);
     expect(named(faced, 'T')[1]).toBeCloseTo(named(beaked, 'T')[1], 4);
     expect(Math.abs(named(faced, 'L')[0])).toBeGreaterThan(PENGUIN_SIDE_FRAC * PENGUIN_R);
-    expect(topFaceAt(faced, 0, PENGUIN_BEAK_FRAC * PENGUIN_R - 0.014)?.tone).toBe('front');
-    expect(topFaceAt(faced, 0.011, PENGUIN_BEAK_FRAC * PENGUIN_R - 0.014)?.tone).toBe('front');
-    expect(topFaceAt(faced, -0.011, PENGUIN_BEAK_FRAC * PENGUIN_R - 0.014)?.tone).toBe('front');
-    expect(topFaceAt(faced, 0, 0.02)?.tone).toBe('back');
-    expect(topFaceAt(faced, -0.09, 0)?.tone).toBe('front');
-    expect(topFaceAt(faced, 0.09, 0)?.tone).toBe('front');
+    const loweredIds = new Set(PENGUIN_RECIPE.snapshots.lowered!.faces.map((face) => face.id));
+    for (const id of loweredIds) {
+      expect(faced.faces.some((face) => face.id === id || face.id.startsWith(`${id}:`)), id).toBe(true);
+    }
+    expect(new Set(faced.faces.map((face) => face.id)).size).toBe(faced.faces.length);
+    const maxLayer = beaked.faces.reduce((max, face) => Math.max(max, face.layer), 0);
+    for (const face of beaked.faces) {
+      const turned = faced.faces.find((other) => other.id === face.id);
+      expect(turned?.layer, face.id).toBe(maxLayer - face.layer);
+      expect(turned?.materialId).toBe(face.materialId);
+    }
+    const eyeY = PENGUIN_BEAK_FRAC * PENGUIN_R - 0.014;
+    for (const [x, y, tone] of [
+      [0, eyeY, 'front'],
+      [0.011, eyeY, 'front'],
+      [-0.011, eyeY, 'front'],
+      [0, 0.06, 'front'],
+      [0, 0, 'back'],
+      [-0.09, 0, 'front'],
+      [0.09, 0, 'front'],
+    ] as const) {
+      expect(topFaceAt(faced, x, y)?.tone, `${x},${y}`).toBe(tone);
+      const paper = visiblePaperAt(faced, x, y);
+      expect(paper?.tone, `${x},${y}`).toBe(tone);
+      expect(paper?.normalZ ?? 0, `${x},${y}`).toBeGreaterThan(0.5);
+    }
     expect(Math.max(...(face?.arrowPathLocal ?? []).map((point) => point[2]))).toBeGreaterThan(0.03);
 
     const engine = new OrigamiEngine(PENGUIN_RECIPE, PENGUIN_NAMED);
@@ -444,9 +522,12 @@ describe('origami penguin recipe', () => {
 
   it('shows the white belly as the paper back and clears the turn on restart', () => {
     const finished = PENGUIN_RECIPE.snapshots.penguin!;
-    const belly = topFaceAt(finished, 0, 0.05);
+    const belly = topFaceAt(finished, 0, 0);
+    const head = topFaceAt(finished, 0, 0.06);
     expect(belly?.tone).toBe('back');
     expect(belly?.materialId).toBe('front');
+    expect(head?.tone).toBe('front');
+    expect(head?.materialId).toBe('front');
     expect(finished.faces.every((face) => face.materialId === 'front')).toBe(true);
 
     const engine = new OrigamiEngine(PENGUIN_RECIPE, PENGUIN_NAMED);
