@@ -395,32 +395,14 @@ headedNamed.BL = BL;
 headedNamed.O = O;
 const headed: MeshSnapshot = compressLayers(withPose(foldStacked(narrow, HINGE_HEAD, FLAP_TIP).snapshot, headedNamed));
 
-const TAIL_INSET = 0.02;
-const bisectorLen = Math.hypot(Math.cos(Math.PI / 8), Math.sin(Math.PI / 8));
-const BISECTOR: Vec3 = [Math.cos(Math.PI / 8) / bisectorLen, Math.sin(Math.PI / 8) / bisectorLen, 0];
-const tailOrigin: Vec3 = [BL[0] + BISECTOR[0] * TAIL_INSET, BL[1] + BISECTOR[1] * TAIL_INSET, 0];
-const tailDir: Vec3 = [-BISECTOR[1], BISECTOR[0], 0];
-
-function rayAtY(y: number): Vec3 | null {
-  if (Math.abs(tailDir[1]) < 1e-8) {
-    return null;
-  }
-  const t = (y - tailOrigin[1]) / tailDir[1];
-  return [tailOrigin[0] + tailDir[0] * t, y, 0];
-}
-
-function rayOnHypotenuse(): Vec3 | null {
-  const denom = tailDir[1] - tailDir[0];
-  if (Math.abs(denom) < 1e-8) {
-    return null;
-  }
-  const t = (tailOrigin[0] - tailOrigin[1]) / denom;
-  const x = tailOrigin[0] + tailDir[0] * t;
-  return [x, x, 0];
-}
-
-const TAIL_BOTTOM = rayAtY(-H) ?? [BL[0] + TAIL_INSET, -H, 0];
-const TAIL_HYP = rayOnHypotenuse() ?? [BL[0] + TAIL_INSET * 0.7, BL[1] + TAIL_INSET * 0.7, 0];
+/**
+ * The tail crease is steeper than the corner bisector. Reflecting the
+ * bottom-left tip across it swings the tip outward and downward, so the
+ * triangular flap hangs just past the bottom edge instead of tucking into
+ * the body. Both ends stay on the paper: the bottom edge and the back.
+ */
+const TAIL_BOTTOM: Vec3 = [-0.09, -H, 0];
+const TAIL_HYP: Vec3 = [-0.078, -0.078, 0];
 
 const HINGE_FOOT: HingeDefinition = faceViewer(
   {
@@ -703,7 +685,7 @@ export const DINOSAUR_RECIPE: OrigamiRecipe = {
       targetLandmarks: [{ sourceVertexId: 'BL', target: footNamed.BL ?? FOOT_LANDING }],
       arrowPathLocal: arc([BL[0] + 0.008, BL[1] + 0.006, 0.004], [FOOT_LANDING[0], FOOT_LANDING[1], 0.004], 0.018),
       meshStrategy: 'hinge',
-      validationNotes: 'Step 6. A short crease near the lower-left corner turns that tip into the foot. The head and neck stay put.',
+      validationNotes: 'Step 6. The tail tip folds outward and downward across the diagonal crease. The triangular flap hangs just past the bottom-left edge. The head and neck stay put.',
     }),
     step({
       id: 'dino-decorate',

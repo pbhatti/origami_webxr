@@ -127,8 +127,10 @@ describe('origami dinosaur recipe', () => {
     expect(pointInside(headed, S * 0.12, -S * 0.4)).toBe(true);
     expect(headed.vertices.some((vertex) => Math.abs(vertex[0] - S * 0.25) < 0.004 && Math.abs(vertex[1] + S) < 0.004)).toBe(true);
 
-    expect(DINOSAUR_FOOT_TIP[0]).toBeGreaterThan(-S + 0.008);
-    expect(DINOSAUR_FOOT_TIP[1]).toBeGreaterThan(-S + 0.004);
+    expect(DINOSAUR_FOOT_TIP[1]).toBeLessThan(-S - 0.006);
+    expect(DINOSAUR_FOOT_TIP[0]).toBeLessThan(-0.08);
+    expect(DINOSAUR_FOOT_TIP[0]).toBeGreaterThan(-S - 0.01);
+    expect(DINOSAUR_RECIPE.snapshots.footed?.outline?.some((point) => point[1] < -S - 0.006)).toBe(true);
     expect(DINOSAUR_RECIPE.snapshots.footed?.named?.TR?.[0]).toBeCloseTo(DINOSAUR_HEAD_TIP[0], 3);
     expect(DINOSAUR_RECIPE.snapshots.footed?.named?.TR?.[1]).toBeCloseTo(DINOSAUR_HEAD_TIP[1], 3);
     expect(DINOSAUR_EYE[0]).toBeGreaterThan(S * 0.25);
@@ -198,11 +200,26 @@ describe('origami dinosaur recipe', () => {
     }
     const ends = [foot!.hinge.p0, foot!.hinge.p1];
     expect(ends.some((point) => Math.abs(point[1] + S) < 0.004 && point[0] < -0.05)).toBe(true);
+    expect(ends.some((point) => Math.abs(point[0] - point[1]) < 0.004 && point[0] < -0.05)).toBe(true);
     for (const point of ends) {
       expect(point[0]).toBeLessThan(-0.05);
       expect(point[1]).toBeLessThan(-0.05);
       expect(Math.hypot(point[0] + S, point[1] + S)).toBeLessThan(0.04);
     }
+    const folded = deformByHinge(headed, foot!.hinge, -180, corner);
+    const landed = [...folded.movingVertexIds].flatMap((index) => {
+      const vertex = folded.snapshot.vertices[index];
+      return vertex ? [vertex] : [];
+    });
+    expect(landed).toHaveLength(1);
+    expect(landed[0]?.[0]).toBeCloseTo(DINOSAUR_FOOT_TIP[0], 3);
+    expect(landed[0]?.[1]).toBeCloseTo(DINOSAUR_FOOT_TIP[1], 3);
+    expect(landed[0]?.[1]).toBeLessThan(-S - 0.006);
+    expect(folded.snapshot.vertices.some((vertex) => Math.hypot(vertex[0] - DINOSAUR_HEAD_TIP[0], vertex[1] - DINOSAUR_HEAD_TIP[1]) < 0.004)).toBe(true);
+    const committed = DINOSAUR_RECIPE.snapshots.footed!;
+    expect(committed.vertices.some((vertex) => Math.hypot(vertex[0] - DINOSAUR_FOOT_TIP[0], vertex[1] - DINOSAUR_FOOT_TIP[1]) < 0.002)).toBe(true);
+    expect(pointInside(committed, DINOSAUR_FOOT_TIP[0], DINOSAUR_FOOT_TIP[1] + 0.003)).toBe(true);
+    expect(pointInside(committed, DINOSAUR_HEAD_TIP[0], DINOSAUR_HEAD_TIP[1])).toBe(true);
   });
 
   it('is a valid seven-step recipe and leaves the other animals alone', () => {
